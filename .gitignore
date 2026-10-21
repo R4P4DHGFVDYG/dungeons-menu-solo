@@ -1,0 +1,31 @@
+# Build output (NeoRune writes the .pak/.utoc/.ucas under bin/NeoRune/Pak)
+bin/
+obj/
+*.pak
+*.utoc
+*.ucas
+
+# Installer test fixtures and release bundles
+package-scripts/test-runs/
+payload/
+*.zip
+
+# Personal state: never commit saves, backups or the install receipt
+*.sav
+backups/
+installation.json
+SaveGames/
+
+# Tooling
+__pycache__/
+*.pyc
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+
+# OS
+Thumbs.db
+desktop.ini
+.DS_Store

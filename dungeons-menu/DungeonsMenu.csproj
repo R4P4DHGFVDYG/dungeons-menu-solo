@@ -1,0 +1,11 @@
+<Project Sdk="NeoRuneExtended.Sdk/1.0.0">
+  <PropertyGroup>
+    <Version>0.3.6</Version>
+    <NeoRuneModTitle>Menu Dungeons — Solo</NeoRuneModTitle>
+    <NeoRuneModDescription>Recursos, itens, mobs, encantamentos e combate para partidas solo. Use o iniciador que verifica a versão e preserva um backup.</NeoRuneModDescription>
+    <NeoRuneModAuthor>Mod pessoal criado com Codex</NeoRuneModAuthor>
+    <NeoRuneInstall>false</NeoRuneInstall>
+    <NeoRuneLiveTuning>false</NeoRuneLiveTuning>
+    <NeoRuneGameDir>C:\Program Files (x86)\Steam\steamapps\common\Minecraft Dungeons II</NeoRuneGameDir>
+  </PropertyGroup>
+</Project>

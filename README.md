@@ -4,7 +4,7 @@
 
 **Um menu de trapaças em português, com o visual do próprio jogo, para partidas solo/offline.**
 
-![Versão](https://img.shields.io/badge/versão-0.3.6-orange)
+![Versão](https://img.shields.io/badge/versão-0.3.7-orange)
 ![Jogo](https://img.shields.io/badge/Minecraft%20Dungeons%20II-1.1.2.0%20(Steam)-2ea44f)
 ![Modo](https://img.shields.io/badge/modo-solo%20%2F%20offline-blue)
 ![NeoRuneExtended](https://img.shields.io/badge/NeoRuneExtended-1.0.0-8a2be2)
@@ -59,7 +59,7 @@ Adicione ou defina **esmeraldas**, **fragmentos de eco** e **pontos de encantame
 |---|---|
 | **Subir nível** | Usa a experiência do próprio jogo, um nível por vez, para o jogo fazer a subida dele. Baixar não é possível |
 | **Vila** | Nível do **Encantador**, do **Ferreiro** e do **Mercador** até o máximo do jogo. O Encantador libera as melhorias de encantamento que o jogo bloqueia |
-| **Trocas do Mercador** | ⚠️ **Não funciona:** o botão mexe num contador do herói que o Mercador não usa (testado: depois de renovar a loja, o contador continuou em 3 de 3) |
+| **Renovar loja do Mercador** | Renova o estoque do Mercador pelo próprio jogo, de graça e de qualquer lugar do mapa (testado: a troca foi usada e nenhuma esmeralda foi cobrada) |
 | **Experiência e saque** | Multiplicador de experiência, multiplicador de saque, **raridade máxima**, **drop garantido** e **saque duplicado** |
 
 Com a raridade máxima ligada, equipamentos comuns e raros viram **Especiais** já no chão e também ao entrar no inventário. Itens únicos continuam únicos.
@@ -256,7 +256,6 @@ O arquivo não contém credenciais. Linhas `[diag]` mostram o que o jogo devolve
 
 ## Limitações conhecidas
 
-- **Trocas do Mercador:** o botão "Recarregar trocas do Mercador" não tem efeito. As trocas que o Mercador oferece não ficam no contador que o menu altera.
 - **Tempestade de Almas:** o jogo aceita o pedido, mas o efeito na tela ainda não foi confirmado.
 - **Sem teste confirmado:** multiplicador de experiência, troca de raridade e de poder do item equipado e o modo livre de encantamentos (acima do máximo normal o efeito real não foi comprovado).
 - **Raridade máxima:** o feixe de luz dos drops no chão continua com a cor sorteada pelo jogo, mesmo com o item já Especial.

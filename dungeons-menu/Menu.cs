@@ -44,7 +44,7 @@ public class Menu : ModMenu
     const int MinZoom = 80;
     const int MaxZoom = 130;
     const int ZoomStep = 10;
-    const string Version = "0.3.6";
+    const string Version = "0.3.7";
     const int TabCount = 7;
     const int TabResources = 0;
     const int TabHero = 1;
@@ -926,7 +926,7 @@ public class Menu : ModMenu
         if (blacksmith != null) blacksmith.OnClicked += ApplyBlacksmith;
         var merchant = VendorButton(VendorRow(left, "merchant", merchantInput, 10));
         if (merchant != null) merchant.OnClicked += ApplyMerchant;
-        var refill = Btn("RECARREGAR TROCAS DO MERCADOR", ItemVisuals.LookSecondary, 21);
+        var refill = Btn("RENOVAR LOJA DO MERCADOR", ItemVisuals.LookSecondary, 21);
         if (refill != null) { refill.OnClicked += RefillRefreshes; AddV(left, Sized(refill, 460, 64), 14); }
 
         Section(left, "EXPERIÊNCIA E SAQUE", 30);
@@ -1826,7 +1826,7 @@ public class Menu : ModMenu
     void RefillRefreshes()
     {
         if (adapter == null) return;
-        var result = adapter.RefillMerchantRefreshes();
+        var result = adapter.RefreshMerchantStock();
         Page();
         Report(result);
     }

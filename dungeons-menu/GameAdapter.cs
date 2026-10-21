@@ -12,6 +12,7 @@ using UE.ItemGenerator;
 using UE.NavigationSystem;
 using UE.SpicewoodGAS;
 using UE.SWCoreGAS;
+using UE.SWCoreCommon;
 using UE.SWCoreGameplay;
 using UE.WorldTimeOfDay;
 
@@ -1365,23 +1366,56 @@ public class GameAdapter : UObject, IMenuSpawnResponse
             : $"O jogo manteve o {VendorName(vendor)} no nível {now}; pedido {target}.";
     }
 
-    /// <summary>Refills the Village Merchant's stock refreshes.</summary>
-    public string RefillMerchantRefreshes()
+    const string VillageMerchantTag = "SW.NPC.VillageMerchant";
+
+    static float MerchantCharges(UAbilitySystemComponent asc, out float max)
     {
-        if (!CanWrite(out var reason)) return reason;
-        var asc = AbilitySystem();
-        if (asc == null) return "Sistema de atributos indisponível.";
+        max = -1;
         foreach (var set in asc.SpawnedAttributes)
             if (set is UATR_MerchantInfo info)
             {
-                float before = info.VillageMerchantRefreshCharges.CurrentValue;
-                float max = info.VillageMerchantRefreshChargesMax.CurrentValue;
-                SetBase(asc, Unreal.ClassOf<UATR_MerchantInfo>(), "VillageMerchantRefreshCharges", max);
-                float after = info.VillageMerchantRefreshCharges.CurrentValue;
-                Diag($"merchant refreshes {before}->{after} max={max}");
-                return after == max ? $"Trocas do Mercador: {after} de {max}." : $"O jogo manteve {after} trocas (máximo {max}).";
+                max = info.VillageMerchantRefreshChargesMax.CurrentValue;
+                return info.VillageMerchantRefreshCharges.CurrentValue;
             }
-        return "Os dados do Mercador não estão no herói (atributo ausente).";
+        return -1;
+    }
+
+    static string CostText(FCurrencyBundle bundle)
+    {
+        string text = "";
+        foreach (var entry in bundle.Currencies)
+            text += (entry.Key == ECurrency.Emerald ? "esmeraldas" : entry.Key == ECurrency.SpringStone ? "fragmentos" : "pontos") + "=" + entry.Value + " ";
+        return text == "" ? "grátis" : text;
+    }
+
+    /// <summary>
+    /// Renews the Village Merchant's stock the game's own way (what holding R in its shop does), from anywhere. Filling
+    /// the hero's refresh charges alone did nothing (0.3.6: they read 3 of 3 right after a refresh at the shop), so the
+    /// charges are topped up and then the game's refresh is asked for.
+    /// </summary>
+    public string RefreshMerchantStock()
+    {
+        if (!CanWrite(out var reason)) return reason;
+        var player = World.Player(context!);
+        var asc = AbilitySystem();
+        if (player == null || asc == null) return "Personagem indisponível.";
+        float before = MerchantCharges(asc, out var max);
+        if (before < 0) return "Os dados do Mercador não estão no herói (atributo ausente).";
+        if (before < max) SetBase(asc, Unreal.ClassOf<UATR_MerchantInfo>(), "VillageMerchantRefreshCharges", max);
+        var merchant = new FGameplayTag { TagName = VillageMerchantTag };
+        int emeraldsBefore = UKismetStringLibrary.Conv_StringToInt(ResourceAmount("emeralds"));
+        string cost = CostText(UGA_RefreshMerchantInventory.GetRefreshCost(player, merchant));
+        string blockers = "";
+        foreach (var why in UGA_RefreshMerchantInventory.CanRefresh(player, merchant))
+            blockers += why == EGA_RefreshMerchantInventory_FailReason.Cost ? "faltam esmeraldas; " : "o jogo não aceitou o pedido; ";
+        bool done = blockers == "" && UGA_RefreshMerchantInventory.DoRefreshMerchantInventory(player, merchant);
+        float after = MerchantCharges(asc, out max);
+        int emeraldsAfter = UKismetStringLibrary.Conv_StringToInt(ResourceAmount("emeralds"));
+        Diag($"merchant refresh charges {before}->{after} max={max} cost={cost} blockers={blockers} done={done} emeralds {emeraldsBefore}->{emeraldsAfter}");
+        if (blockers != "") return "O jogo recusou a renovação: " + blockers;
+        if (!done) return "O jogo não renovou a loja do Mercador.";
+        string paid = emeraldsAfter < emeraldsBefore ? $"custou {emeraldsBefore - emeraldsAfter} esmeraldas" : "de graça";
+        return $"Loja do Mercador renovada ({paid}). Fale com ele para ver os itens novos.";
     }
 
     // A factor on an attribute. Some "multipliers" are bonuses added to 1 and start at 0 (LootingMultiplier read 0 in

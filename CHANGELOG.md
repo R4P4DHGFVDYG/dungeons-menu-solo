@@ -1,5 +1,8 @@
 # Histórico de versões
 
+## 0.3.7
+- O botão do Mercador virou **Renovar loja do Mercador**: renova o estoque pelo próprio jogo, de graça e de qualquer lugar. O botão antigo só enchia um contador e não renovava nada.
+
 ## 0.3.6
 - A barra de abas mostra os três contadores (fragmentos de eco, esmeraldas, pontos de encantamento) mesmo com sete abas.
 - O aviso do F5 diz "Invencibilidade: ligada/desligada".

@@ -59,7 +59,7 @@ Adicione ou defina **esmeraldas**, **fragmentos de eco** e **pontos de encantame
 |---|---|
 | **Subir nível** | Usa a experiência do próprio jogo, um nível por vez, para o jogo fazer a subida dele. Baixar não é possível |
 | **Vila** | Nível do **Encantador**, do **Ferreiro** e do **Mercador** até o máximo do jogo. O Encantador libera as melhorias de encantamento que o jogo bloqueia |
-| **Trocas do Mercador** | Recarrega as trocas de estoque do Mercador |
+| **Trocas do Mercador** | ⚠️ **Não funciona:** o botão mexe num contador do herói que o Mercador não usa (testado: depois de renovar a loja, o contador continuou em 3 de 3) |
 | **Experiência e saque** | Multiplicador de experiência, multiplicador de saque, **raridade máxima**, **drop garantido** e **saque duplicado** |
 
 Com a raridade máxima ligada, equipamentos comuns e raros viram **Especiais** já no chão e também ao entrar no inventário. Itens únicos continuam únicos.
@@ -256,6 +256,7 @@ O arquivo não contém credenciais. Linhas `[diag]` mostram o que o jogo devolve
 
 ## Limitações conhecidas
 
+- **Trocas do Mercador:** o botão "Recarregar trocas do Mercador" não tem efeito. As trocas que o Mercador oferece não ficam no contador que o menu altera.
 - **Tempestade de Almas:** o jogo aceita o pedido, mas o efeito na tela ainda não foi confirmado.
 - **Sem teste confirmado:** multiplicador de experiência, troca de raridade e de poder do item equipado e o modo livre de encantamentos (acima do máximo normal o efeito real não foi comprovado).
 - **Raridade máxima:** o feixe de luz dos drops no chão continua com a cor sorteada pelo jogo, mesmo com o item já Especial.

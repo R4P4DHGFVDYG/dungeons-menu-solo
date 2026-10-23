@@ -4,8 +4,8 @@
 
 **Um menu de trapaças em português, com o visual do próprio jogo, para partidas solo/offline.**
 
-![Versão](https://img.shields.io/badge/versão-0.3.7-orange)
-![Jogo](https://img.shields.io/badge/Minecraft%20Dungeons%20II-1.1.2.0%20(Steam)-2ea44f)
+![Versão](https://img.shields.io/badge/versão-0.3.8-orange)
+![Jogo](https://img.shields.io/badge/Minecraft%20Dungeons%20II-1.1.3.0%20(Steam)-2ea44f)
 ![Modo](https://img.shields.io/badge/modo-solo%20%2F%20offline-blue)
 ![NeoRuneExtended](https://img.shields.io/badge/NeoRuneExtended-1.0.0-8a2be2)
 ![Licença](https://img.shields.io/badge/licença-MIT-lightgrey)
@@ -33,7 +33,7 @@
 
 ## O que é
 
-O **Menu Solo** é um mod para **Minecraft Dungeons II** (Steam, versão 1.1.2.0). Ele abre com **Insert** por cima do jogo e reúne, em sete abas, o que normalmente exigiria horas de farm: recursos, nível, itens, mobs, encantamentos, combate e controle do mundo.
+O **Menu Solo** é um mod para **Minecraft Dungeons II** (Steam, versão 1.1.3.0). Ele abre com **Insert** por cima do jogo e reúne, em sete abas, o que normalmente exigiria horas de farm: recursos, nível, itens, mobs, encantamentos, combate e controle do mundo.
 
 - Escrito em C# e compilado para Blueprint com o [NeoRuneExtended](https://github.com/thororen1234/NeoRuneExtended); carregado pelo [Better Blueprint Loader](https://github.com/thororen1234/MCDII-Mods).
 - Usa as peças visuais do próprio jogo: abas com a linha laranja, botões verdes de confirmar, interruptores e molduras da tela de Configurações, ícones de itens e categorias.
@@ -133,7 +133,7 @@ Funcionam com o menu fechado e mostram um aviso no canto da tela. As teclas pode
 > [!WARNING]
 > O que você altera em Recursos, Herói, Itens e Encantamentos **fica salvo no herói**, e subir o nível não pode ser desfeito. Nos testes, restaurar um backup **não** desfez alterações já salvas pelo jogo. Se não quiser arriscar, use um herói descartável.
 
-1. Baixe o ZIP da versão em **Releases** (`DungeonsMenu-0.3.6-experimental.zip`). Ele já traz o mod compilado, o Better Blueprint Loader 2.1.1 e os scripts.
+1. Baixe o ZIP da versão em **Releases** (`DungeonsMenu-0.3.8-experimental.zip`). Ele já traz o mod compilado, o Better Blueprint Loader 2.1.1 e os scripts.
 2. Extraia para uma pasta **permanente**, fora da pasta do jogo e fora de `Dungeons2\Saved`. Essa pasta guarda o registro da instalação e os seus backups.
 3. Com o jogo fechado, abra o PowerShell nessa pasta:
 
@@ -171,7 +171,7 @@ Dicas:
 
 O menu só altera alguma coisa quando todas estas condições valem:
 
-- o jogo foi aberto pelo iniciador, com o carimbo da versão 1.1.2.0;
+- o jogo foi aberto pelo iniciador, com o carimbo da versão 1.1.3.0;
 - a partida é solo/offline, sem cooperativo local;
 - há um herói vivo e o mapa terminou de carregar.
 
@@ -260,7 +260,7 @@ O arquivo não contém credenciais. Linhas `[diag]` mostram o que o jogo devolve
 - **Sem teste confirmado:** multiplicador de experiência, troca de raridade e de poder do item equipado e o modo livre de encantamentos (acima do máximo normal o efeito real não foi comprovado).
 - **Raridade máxima:** o feixe de luz dos drops no chão continua com a cor sorteada pelo jogo, mesmo com o item já Especial.
 - **Mobs:** em 16 dos cerca de 220 tipos o menu não encontra a classe do mob, e a fila de criação do jogo não os criou nos testes.
-- **Versão do jogo:** o iniciador bloqueia executáveis diferentes do 1.1.2.0. Remova o mod antes de atualizar o jogo.
+- **Versão do jogo:** o iniciador só abre o jogo na versão 1.1.3.0. Quando o jogo atualiza, ele recusa abrir até sair uma versão do mod para o build novo.
 
 ## Créditos e licença
 

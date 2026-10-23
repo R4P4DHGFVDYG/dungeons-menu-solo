@@ -1,6 +1,8 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
-$script:ExecutableHash = '3a8703406fd50520f83c4f70a0212c000cb3b584ef28eb38032902230c01ebdd'
+$script:ExecutableHash = '3842102bb05fc532b22e97992d61c2248d115be80ff752ff9b6843bf4acd7005'
+$script:GameVersion = '1.1.3.0'
+$script:SteamBuild = '25910487'
 $script:Names = @('BetterBlueprintLoader_P.pak', 'BetterBlueprintLoader_P.utoc', 'BetterBlueprintLoader_P.ucas', 'DungeonsMenu_P.pak', 'DungeonsMenu_P.utoc', 'DungeonsMenu_P.ucas')
 
 function Assert-DmPlainPath([string]$Path) {
@@ -44,7 +46,7 @@ function Assert-DmGameClosed {
 function Assert-DmGame([string]$GamePath) {
     Assert-DmPlainPath $GamePath
     $exe = Get-DmChild $GamePath 'Dungeons/Binaries/Win64/Dungeons-Win64-Shipping.exe'
-    if ((Get-DmHash $exe) -ne $script:ExecutableHash) { throw 'Executavel desconhecido. Este pacote exige a versao Steam 1.1.2.0 analisada.' }
+    if ((Get-DmHash $exe) -ne $script:ExecutableHash) { throw "Executavel desconhecido. Este pacote exige a versao Steam $script:GameVersion analisada." }
     $config = Get-DmChild $GamePath 'MicrosoftGame.config'
     $settings = New-Object Xml.XmlReaderSettings
     $settings.DtdProcessing = [Xml.DtdProcessing]::Prohibit
@@ -56,14 +58,14 @@ function Assert-DmGame([string]$GamePath) {
         $xml.Load($reader)
     } finally { $reader.Dispose() }
     $identity = $xml.SelectSingleNode('/Game/Identity')
-    if ($null -eq $identity -or $identity.GetAttribute('Name') -ne 'Microsoft.MinecraftDungeons2' -or $identity.GetAttribute('Version') -ne '1.1.2.0') {
+    if ($null -eq $identity -or $identity.GetAttribute('Name') -ne 'Microsoft.MinecraftDungeons2' -or $identity.GetAttribute('Version') -ne $script:GameVersion) {
         throw 'Identidade ou versao de MicrosoftGame.config incompativel.'
     }
     $steamApps = Split-Path (Split-Path ([IO.Path]::GetFullPath($GamePath)) -Parent) -Parent
     $acf = Get-DmChild $steamApps 'appmanifest_1912410.acf'
     $text = Get-Content -LiteralPath $acf -Raw
-    if ($text -notmatch '"appid"\s+"1912410"' -or $text -notmatch '"buildid"\s+"25754144"') {
-        throw 'Manifesto Steam incompativel: exige app 1912410, build 25754144.'
+    if ($text -notmatch '"appid"\s+"1912410"' -or $text -notmatch ('"buildid"\s+"' + $script:SteamBuild + '"')) {
+        throw "Manifesto Steam incompativel: exige app 1912410, build $script:SteamBuild."
     }
     return $exe
 }
@@ -144,7 +146,7 @@ function New-DmSaveBackup([string]$PackagePath, [string]$SavedPath, [switch]$All
     Assert-DmGameClosed
     $after = @(Get-DmSaveInventory $SavedPath -AllowIncomplete:$AllowIncomplete)
     if (($before | ConvertTo-Json -Compress) -cne ($after | ConvertTo-Json -Compress)) { throw 'Perfil mudou durante o backup. O jogo nao sera iniciado.' }
-    Write-DmJson ([ordered]@{ schemaVersion = 1; gameVersion = '1.1.2.0'; savedPath = $savedFull; createdUtc = [DateTime]::UtcNow.ToString('o'); files = $before }) (Get-DmChild $backup 'backup-manifest.json')
+    Write-DmJson ([ordered]@{ schemaVersion = 1; gameVersion = $script:GameVersion; savedPath = $savedFull; createdUtc = [DateTime]::UtcNow.ToString('o'); files = $before }) (Get-DmChild $backup 'backup-manifest.json')
     return [pscustomobject]@{ Path = $backup; FileCount = $before.Count }
 }
 
@@ -160,7 +162,7 @@ function Restore-DmSaveBackup([string]$PackagePath, [string]$BackupPath, [string
     Assert-DmPlainPath $backupFull
     if ($backupFull -eq $savedFull -or $backupFull.StartsWith($savedFull + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw 'O backup deve ficar fora da pasta Saved.' }
     $manifest = Get-Content -LiteralPath (Get-DmChild $backupFull 'backup-manifest.json') -Raw | ConvertFrom-Json
-    if ($manifest.schemaVersion -ne 1 -or $manifest.gameVersion -ne '1.1.2.0' -or $manifest.savedPath -ne $savedFull) { throw 'Backup de outra pasta de perfil ou versao; restauracao recusada.' }
+    if ($manifest.schemaVersion -ne 1 -or $manifest.gameVersion -ne $script:GameVersion -or $manifest.savedPath -ne $savedFull) { throw 'Backup de outra pasta de perfil ou versao; restauracao recusada.' }
     $current = @(Get-DmSaveInventory $savedFull -AllowIncomplete)
     $seen = @{}
     $restores = @()
@@ -315,7 +317,7 @@ function Start-DmMod([string]$PackagePath, [string]$GamePath, [string]$SavedPath
     Assert-DmPlainPath $SteamPath
     if (-not (Test-Path -LiteralPath $SteamPath -PathType Leaf) -or [IO.Path]::GetFileName($SteamPath) -ine 'steam.exe') { throw 'Informe o caminho do executavel steam.exe.' }
     $null = Get-DmSaveInventory $SavedPath
-    if ($DryRun) { return [pscustomobject]@{ Action = 'VerificarInicio'; Version = '1.1.2.0'; BackupPending = $true; LaunchPending = $true } }
+    if ($DryRun) { return [pscustomobject]@{ Action = 'VerificarInicio'; Version = $script:GameVersion; BackupPending = $true; LaunchPending = $true } }
     $backup = New-DmSaveBackup $PackagePath $SavedPath
     # Recheck immediately before launching; the stamp is passed only on this launch.
     Assert-DmGameClosed

@@ -1,5 +1,10 @@
 # Histórico de versões
 
+## 0.3.8
+- Compatível com o jogo **1.1.3.0** (build 25910487), atualizado pelo Steam em 22/10/2026. O iniciador e o menu passam a aceitar esse executável; o 1.1.2.0 deixa de ser aceito.
+- A API do jogo novo foi comparada com tudo o que o menu e o loader usam e nada mudou. O visual, o combate lembrado e os atalhos F5 a F8 foram conferidos em partida.
+- Backups de perfil feitos no 1.1.2.0 não são restaurados por esta versão.
+
 ## 0.3.7
 - O botão do Mercador virou **Renovar loja do Mercador**: renova o estoque pelo próprio jogo, de graça e de qualquer lugar. O botão antigo só enchia um contador e não renovava nada.
 

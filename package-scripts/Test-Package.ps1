@@ -39,8 +39,8 @@ function Fixture {
     $steam = Join-Path $root 'steam.exe'
     $exe = Join-Path $game 'Dungeons/Binaries/Win64/Dungeons-Win64-Shipping.exe'
     Put $exe 'fixture-executable'
-    Put (Join-Path $game 'MicrosoftGame.config') '<Game><Identity Name="Microsoft.MinecraftDungeons2" Version="1.1.2.0" /></Game>'
-    Put (Join-Path $root 'steamapps/appmanifest_1912410.acf') '"appid" "1912410" "buildid" "25754144"'
+    Put (Join-Path $game 'MicrosoftGame.config') '<Game><Identity Name="Microsoft.MinecraftDungeons2" Version="1.1.3.0" /></Game>'
+    Put (Join-Path $root 'steamapps/appmanifest_1912410.acf') '"appid" "1912410" "buildid" "25910487"'
     Put (Join-Path $saved 'SaveGames/hero.dat') 'fixture-hero'
     Put (Join-Path $saved 'Config/Windows/Game.ini') 'fixture-settings'
     Put (Join-Path $saved 'SaveGames_BACKUP/hero.dat') 'fixture-old-hero'
@@ -83,7 +83,7 @@ Assert-Throws { Install-DmPackage $f.package $f.game } 'Executavel desconhecido'
 Assert (-not (Test-Path -LiteralPath $f.mods)) 'Versao desconhecida nao escreve'
 
 $f = Fixture
-Put (Join-Path $f.game 'MicrosoftGame.config') '<Game><Identity Name="WrongGame" Version="1.1.2.0" /></Game>'
+Put (Join-Path $f.game 'MicrosoftGame.config') '<Game><Identity Name="WrongGame" Version="1.1.3.0" /></Game>'
 Assert-Throws { Install-DmPackage $f.package $f.game } 'Identidade ou versao'
 $f = Fixture
 Put (Join-Path $f.root 'steamapps/appmanifest_1912410.acf') '"appid" "1912410" "buildid" "999"'

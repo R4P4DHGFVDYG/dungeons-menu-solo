@@ -44,7 +44,7 @@ public class Menu : ModMenu
     const int MinZoom = 80;
     const int MaxZoom = 130;
     const int ZoomStep = 10;
-    const string Version = "0.3.7";
+    const string Version = "0.3.8";
     const int TabCount = 7;
     const int TabResources = 0;
     const int TabHero = 1;

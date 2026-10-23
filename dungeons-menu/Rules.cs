@@ -4,7 +4,7 @@ namespace DungeonsMenu;
 
 public static class Rules
 {
-    public const string ExecutableHash = "3a8703406fd50520f83c4f70a0212c000cb3b584ef28eb38032902230c01ebdd";
+    public const string ExecutableHash = "3842102bb05fc532b22e97992d61c2248d115be80ff752ff9b6843bf4acd7005";
     public static bool Amount(int value) => value >= 0 && value <= 1000000;
     public static bool Quantity(int value) => value >= 1 && value <= 20;
     public static bool Tier(int value) => value >= 1 && value <= 100;

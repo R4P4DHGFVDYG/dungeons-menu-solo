@@ -9,7 +9,7 @@ namespace DungeonsMenu;
 [ModSetting.Keybind("hotkey_cooldown", "Atalho: sem tempo de recarga", Default = "F6")]
 [ModSetting.Keybind("hotkey_slow", "Atalho: câmera lenta", Default = "F7")]
 [ModSetting.Keybind("hotkey_off", "Atalho: desligar tudo", Default = "F8")]
-[ModSetting.Text("Use o iniciador para verificar a versão e criar backup. Apenas solo/offline.")]
+[ModSetting.Text("Apenas solo/offline. Faça backup dos saves antes de alterar o herói.")]
 public class ModActor : AActor, IModSettings
 {
     GameAdapter? adapter;

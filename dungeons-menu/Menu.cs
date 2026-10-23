@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using NeoRune;
 using UE.CoreUObject;
 using UE.Engine;
+using UE.GameplayTags;
 using UE.Minimap;
 using UE.Slate;
 using UE.SlateCore;
@@ -44,7 +45,7 @@ public class Menu : ModMenu
     const int MinZoom = 80;
     const int MaxZoom = 130;
     const int ZoomStep = 10;
-    const string Version = "0.3.8";
+    const string Version = "0.4.0";
     const int TabCount = 7;
     const int TabResources = 0;
     const int TabHero = 1;
@@ -84,10 +85,18 @@ public class Menu : ModMenu
     float radiusInput;
     // Every number box on the page (typing in one keeps Q and E from switching tabs).
     List<USpinBox> spins;
+    // The page's scroll boxes in the order they were made, and where they stood before the page was rebuilt: a click
+    // rebuilds the page, which sent its lists back to the top (reported on 0.4.0). Set again for a few frames, since a
+    // new scroll box only knows how tall its content is once it has been laid out.
+    List<UScrollBox> scrolls;
+    List<float> scrollOffsets;
+    int builtTab;
+    int restoreFrames;
     string toggleKey;
     int tab;
     bool freeMode;
-    // Combat tab: the options chosen (in Rules.CombatKeys order, applied with Aplicar) and the page's factor boxes.
+    // Combat tab: the options in force (in Rules.CombatKeys order, applied as soon as one changes) and the page's factor
+    // boxes.
     List<float> combat;
     List<USpinBox> combatSpins;
     List<string> combatSpinKeys;
@@ -160,6 +169,9 @@ public class Menu : ModMenu
         radiusInput = 20;
         toggleKey = key;
         spins = new List<USpinBox>();
+        scrolls = new List<UScrollBox>();
+        scrollOffsets = new List<float>();
+        builtTab = -1;
         combatSpins = new List<USpinBox>();
         combatSpinKeys = new List<string>();
         combat = new List<float>();
@@ -173,6 +185,10 @@ public class Menu : ModMenu
     protected override UWidget? Build(UWidgetTree widgetTree)
     {
         tree = widgetTree;
+        // ModMenu opens and closes with the pause menu's sounds, which also muffle the game's sound (reported on 0.4.0).
+        // Build runs before the screen is activated, so the click plays instead and closing is silent.
+        ActivatedAudioTag = GameUI.Tag(Sounds.ClickTag);
+        DeactivatedAudioTag = new FGameplayTag();
         var viewport = UWidgetLayoutLibrary.GetViewportSize(this);
         aspect = viewport.Y > 100 ? (float)(viewport.X / viewport.Y) : 16f / 9f;
         aspect = Fit(aspect, 1.25f, 2.4f);
@@ -447,6 +463,7 @@ public class Menu : ModMenu
         if (scroll == null) return null;
         if (visuals != null && visuals.HasScrollBar) scroll.WidgetBarStyle = visuals.ScrollBar;
         scroll.SetScrollBarPadding(new FMargin { Left = 8 });
+        scrolls.Add(scroll);
         return scroll;
     }
 
@@ -619,6 +636,11 @@ public class Menu : ModMenu
     void Page()
     {
         if (body == null || tree == null) return;
+        // The same tab comes back where it was scrolled to; another tab starts at the top.
+        scrollOffsets.Clear();
+        if (tab == builtTab) foreach (var scroll in scrolls) scrollOffsets.Add(scroll.GetScrollOffset());
+        scrolls.Clear();
+        builtTab = tab;
         BuildNav();
         body.ClearChildren();
         query = null; value = null; powerSpin = null;
@@ -631,6 +653,20 @@ public class Menu : ModMenu
         else if (tab == TabEnchants) EnchantsPage();
         else if (tab == TabWorld) WorldPage();
         else CombatPage();
+        RestoreScroll();
+        restoreFrames = 3;
+    }
+
+    void RestoreScroll()
+    {
+        for (int i = 0; i < scrolls.Count && i < scrollOffsets.Count; i++) scrolls[i].SetScrollOffset(scrollOffsets[i]);
+    }
+
+    public override void Tick(FGeometry geometry, float deltaTime)
+    {
+        if (restoreFrames <= 0) return;
+        restoreFrames--;
+        RestoreScroll();
     }
 
     void OpenTab(int next)
@@ -675,10 +711,18 @@ public class Menu : ModMenu
             : field == "gamespeed" ? gameSpeedSpin : field == "radius" ? radiusSpin : combatAt >= 0 ? combatSpins[combatAt] : value;
         if (target == null) return;
         float step = combatAt >= 0 ? CombatStep(combatSpinKeys[combatAt]) : field == "gamespeed" ? 0.25f : field == "radius" ? 5 : field == "value" && tab == TabResources ? 100 : 1;
-        float next = target.GetValue() + (up ? step : -step);
+        float before = target.GetValue();
+        float next = before + (up ? step : -step);
         float min = target.GetMinValue();
         float max = target.GetMaxValue();
-        target.SetValue(next < min ? min : next > max ? max : next);
+        next = next < min ? min : next > max ? max : next;
+        if (next == before) return;
+        target.SetValue(next);
+        // Combat and hero options, vendor levels and the game speed take effect at once; the other boxes wait for their
+        // button (creating, enchanting, raising the level).
+        if (combatAt >= 0) ApplyCombat(combatSpinKeys[combatAt]);
+        else if (field.StartsWith("v:")) ApplyVendor(field.Substring(2), target);
+        else if (field == "gamespeed") ApplyGameSpeed();
     }
 
     USpinBox? Number(float min, float max, float initial, int decimals)
@@ -920,12 +964,9 @@ public class Menu : ModMenu
         }
 
         Section(left, "VILA", 30);
-        var enchantsmith = VendorButton(VendorRow(left, "enchantsmith", enchantsmithInput, 12));
-        if (enchantsmith != null) enchantsmith.OnClicked += ApplyEnchantsmith;
-        var blacksmith = VendorButton(VendorRow(left, "blacksmith", blacksmithInput, 10));
-        if (blacksmith != null) blacksmith.OnClicked += ApplyBlacksmith;
-        var merchant = VendorButton(VendorRow(left, "merchant", merchantInput, 10));
-        if (merchant != null) merchant.OnClicked += ApplyMerchant;
+        VendorRow(left, "enchantsmith", enchantsmithInput, 12);
+        VendorRow(left, "blacksmith", blacksmithInput, 10);
+        VendorRow(left, "merchant", merchantInput, 10);
         var refill = Btn("RENOVAR LOJA DO MERCADOR", ItemVisuals.LookSecondary, 21);
         if (refill != null) { refill.OnClicked += RefillRefreshes; AddV(left, Sized(refill, 460, 64), 14); }
 
@@ -935,49 +976,37 @@ public class Menu : ModMenu
         CombatSwitch(left, "rarity", "Equipamentos que entram no inventário viram Especiais (a raridade mais alta dos itens comuns); únicos continuam únicos. Os efeitos sorteados no drop não mudam.", 10);
         CombatSwitch(left, "drops", "Os inimigos sempre deixam algo.", 10);
         CombatSwitch(left, "duplicate", "O saque sai em dobro.", 10);
-        var actions = Ui.Row(tree);
-        AddV(left, actions, 22);
-        var apply = Btn("APLICAR", ItemVisuals.LookPrimary, 26);
-        if (apply != null) { apply.OnClicked += ApplyCombat; AddH(actions, Sized(apply, 300, 74), 0, false, false); }
         var reset = Btn("RESTAURAR ORIGINAIS", ItemVisuals.LookSecondary, 22);
-        if (reset != null) { reset.OnClicked += Restore; AddH(actions, Sized(reset, 380, 74), 18, false, false); }
+        if (reset != null) { reset.OnClicked += Restore; AddV(left, Sized(reset, 380, 74), 22); }
 
         var info = DetailPanel(main, "HERÓI", detailWidth, Gap);
         if (info == null) return;
         AddV(info, Txt("NÍVEL", ItemVisuals.PixelUi, 22, White()), 4);
         AddV(info, Wrapped("Subir usa a experiência do próprio jogo; se o jogo não subir na hora, o nível é gravado direto (experimental). Baixar o nível não é possível.", 20, Light()), 10);
         AddV(info, Txt("VILA", ItemVisuals.PixelUi, 22, White()), 24);
-        AddV(info, Wrapped("O nível do Encantador libera as melhorias de encantamento que o jogo bloqueia. Fica salvo no herói; confira depois de recarregar.", 20, Light()), 10);
+        AddV(info, Wrapped("Cada − / + muda o nível na hora. O nível do Encantador libera as melhorias de encantamento que o jogo bloqueia. Fica salvo no herói; confira depois de recarregar.", 20, Light()), 10);
         AddV(info, Txt("EXPERIÊNCIA E SAQUE", ItemVisuals.PixelUi, 22, White()), 24);
-        AddV(info, Wrapped("Valem como as opções de combate: só depois de Aplicar, ficam lembradas e Restaurar originais desliga tudo, inclusive o combate.", 20, Light()), 10);
+        AddV(info, Wrapped("Valem como as opções de combate: na hora em que você muda, ficam lembradas e Restaurar originais desliga tudo, inclusive o combate.", 20, Light()), 10);
     }
 
-    // A vendor's name and level and a − [level] + box (kept in the vendor's field); returns the row, or null when the hero
-    // has no level for that vendor.
-    UHorizontalBox? VendorRow(UVerticalBox? column, string vendor, int input, float top)
+    // A vendor's name and level and a − [level] + box that sets the level at once (what was typed is kept in the vendor's
+    // field).
+    void VendorRow(UVerticalBox? column, string vendor, int input, float top)
     {
-        if (adapter == null) return null;
+        if (adapter == null) return;
         adapter.VendorLevelInfo(vendor, out var level, out var maximum);
         var band = Band(column, top);
         var texts = Ui.Column(tree);
-        if (band == null || texts == null) return null;
+        if (band == null || texts == null) return;
         AddV(texts, Txt(GameAdapter.VendorName(vendor), ItemVisuals.Readable, 25, White()), 0);
         AddV(texts, Wrapped(level < 0 ? "Indisponível neste herói." : $"Nível {level} de {maximum}", 19, Muted()), 4);
         AddH(band, texts, 0, true, false);
-        if (level < 0) return null;
-        var spin = Stepper(band, "v:" + vendor, 0, maximum, input >= 0 ? input : maximum, 0, 120, 24);
-        if (vendor == "enchantsmith") enchantsmithSpin = spin;
-        else if (vendor == "blacksmith") blacksmithSpin = spin;
-        else merchantSpin = spin;
-        return band;
-    }
-
-    UButton? VendorButton(UHorizontalBox? row)
-    {
-        if (row == null) return null;
-        var button = Btn("APLICAR", ItemVisuals.LookSecondary, 21);
-        if (button != null) AddH(row, Sized(button, 150, StepHeight), 12, false, false);
-        return button;
+        if (level < 0) return;
+        var spin = Stepper(band, "v:" + vendor, 0, maximum, input >= 0 ? input : level, 0, 120, 24);
+        if (spin == null) return;
+        if (vendor == "enchantsmith") { enchantsmithSpin = spin; spin.OnValueCommitted += EnchantsmithTyped; }
+        else if (vendor == "blacksmith") { blacksmithSpin = spin; spin.OnValueCommitted += BlacksmithTyped; }
+        else { merchantSpin = spin; spin.OnValueCommitted += MerchantTyped; }
     }
 
     // ---------------------------------------------------------------- Items
@@ -1276,12 +1305,8 @@ public class Menu : ModMenu
         if (leftScroll == null || left == null) return;
         leftScroll.AddChild(left);
         AddH(main, Sized(leftScroll, leftWidth, contentHeight), 0, false, true);
-        var actions = Ui.Row(tree);
-        AddV(left, actions, 0);
-        var apply = Btn("APLICAR", ItemVisuals.LookPrimary, 26);
-        if (apply != null) { apply.OnClicked += ApplyCombat; AddH(actions, Sized(apply, 300, 74), 0, false, false); }
         var reset = Btn("RESTAURAR ORIGINAIS", ItemVisuals.LookSecondary, 22);
-        if (reset != null) { reset.OnClicked += Restore; AddH(actions, Sized(reset, 380, 74), 18, false, false); }
+        if (reset != null) { reset.OnClicked += Restore; AddV(left, Sized(reset, 380, 74), 0); }
         Section(left, "PROTEÇÃO", 26);
         CombatSwitch(left, "god", "A vida não cai: o mínimo vira o máximo e ela é recarregada o tempo todo.", 12);
         CombatSwitch(left, "cooldown", "Habilidades, artefatos e poções prontos de novo na hora, inclusive as cargas da Poção Sem Fundo.", 10);
@@ -1301,7 +1326,7 @@ public class Menu : ModMenu
         var info = DetailPanel(main, "COMBATE", detailWidth, Gap);
         if (info == null || adapter == null) return;
         AddV(info, Txt("COMO FUNCIONA", ItemVisuals.PixelUi, 22, White()), 4);
-        AddV(info, Wrapped("As chaves e os multiplicadores só valem depois de Aplicar. O que for aplicado fica lembrado e volta sozinho ao trocar de fase ou abrir o jogo de novo.", 21, Light()), 12);
+        AddV(info, Wrapped("As chaves e os multiplicadores valem na hora em que você muda (um número digitado vale ao apertar Enter ou sair da caixa). O que estiver ligado fica lembrado e volta sozinho ao trocar de fase ou abrir o jogo de novo.", 21, Light()), 12);
         AddV(info, Wrapped("Restaurar originais desliga tudo e esquece a escolha.", 21, Light()), 12);
         AddV(info, Txt("EM USO AGORA", ItemVisuals.PixelUi, 22, White()), 28);
         foreach (var option in Rules.CombatKeys())
@@ -1326,6 +1351,7 @@ public class Menu : ModMenu
         var range = $" De {Num(Rules.CombatMin(option))} a {Num(Rules.CombatMax(option))}.";
         var spin = StepRow(column, "c:" + option, GameAdapter.CombatName(option), detail + range, Rules.CombatMin(option), Rules.CombatMax(option), combat[at], decimals, top);
         if (spin == null) return;
+        spin.OnValueCommitted += CombatTyped;
         combatSpins.Add(spin);
         combatSpinKeys.Add(option);
     }
@@ -1371,12 +1397,11 @@ public class Menu : ModMenu
             if (midnight != null) midnight.OnClicked += Midnight;
         }
         Section(left, "VELOCIDADE DO JOGO", 30);
-        gameSpeedSpin = StepRow(left, "gamespeed", "Velocidade", "De 0,25 (câmera lenta) a 2 vezes a velocidade normal. Volta ao normal em outra fase.", 0.25f, 2, gameSpeedInput > 0 ? gameSpeedInput : adapter.GameSpeed, 2, 12);
+        gameSpeedSpin = StepRow(left, "gamespeed", "Velocidade", "De 0,25 (câmera lenta) a 2 vezes a velocidade normal; muda na hora. Volta ao normal em outra fase.", 0.25f, 2, gameSpeedInput > 0 ? gameSpeedInput : adapter.GameSpeed, 2, 12);
+        if (gameSpeedSpin != null) gameSpeedSpin.OnValueCommitted += GameSpeedTyped;
         var speedRow = Ui.Row(tree);
         AddV(left, speedRow, 14);
-        var applySpeed = WorldButton(speedRow, "APLICAR", 0);
-        if (applySpeed != null) applySpeed.OnClicked += ApplyGameSpeed;
-        var normal = WorldButton(speedRow, "NORMAL", 14);
+        var normal = WorldButton(speedRow, "NORMAL", 0);
         if (normal != null) normal.OnClicked += NormalGameSpeed;
 
         Section(left, "TEMPESTADE DE ALMAS", 30);
@@ -1679,8 +1704,7 @@ public class Menu : ModMenu
             {
                 int at = Rules.CombatKeys().IndexOf(id);
                 if (at >= 0) combat[at] = combat[at] != 0 ? 0 : 1;
-                Page();
-                Report("Seleção pendente: use Aplicar.");
+                ApplyCombat(id);
                 return;
             }
         }
@@ -1780,13 +1804,47 @@ public class Menu : ModMenu
         Report(result);
     }
 
-    void ApplyCombat()
+    /// <summary>
+    /// Applies every combat and hero option on screen at once, right after one of them (key) changed; what the game
+    /// refused goes back to what is in force.
+    /// </summary>
+    void ApplyCombat(string key)
     {
         if (adapter == null) return;
         Capture();
-        var result = adapter.SetCombat(combat);
+        Report(SetCombat(key));
         Page();
-        Report(result);
+    }
+
+    string SetCombat(string key)
+    {
+        if (adapter == null) return "";
+        int at = Rules.CombatKeys().IndexOf(key);
+        float wanted = at >= 0 ? combat[at] : 0;
+        var result = adapter.SetCombat(combat);
+        combat.Clear();
+        foreach (var option in Rules.CombatKeys()) combat.Add(adapter.Option(option));
+        if (at < 0 || combat[at] != wanted) return result;
+        // "Invencibilidade" is feminine, like the F5 notice.
+        if (Rules.IsSwitch(key)) return $"{GameAdapter.CombatName(key)}: {(wanted != 0 ? "ligad" : "desligad")}{(key == "god" ? "a" : "o")}.";
+        return $"{GameAdapter.CombatName(key)}: × {Num(wanted)}.";
+    }
+
+    // A factor typed in a box: Enter applies it and redraws the page; leaving the box (a click somewhere else) applies it
+    // without redrawing, or that click would land on a button that was just rebuilt.
+    void CombatTyped(float number, ETextCommit method)
+    {
+        if (adapter == null) return;
+        Capture();
+        for (int i = 0; i < combatSpins.Count; i++)
+        {
+            var key = combatSpinKeys[i];
+            if (combat[Rules.CombatKeys().IndexOf(key)] == adapter.Option(key)) continue;
+            Report(SetCombat(key));
+            if (method == ETextCommit.OnEnter) Page();
+            else for (int j = 0; j < combatSpins.Count; j++) combatSpins[j].SetValue(adapter.Option(combatSpinKeys[j]));
+            return;
+        }
     }
 
     void Restore()
@@ -1808,9 +1866,22 @@ public class Menu : ModMenu
         Report(result);
     }
 
-    void ApplyEnchantsmith() { ApplyVendor("enchantsmith", enchantsmithSpin); }
-    void ApplyBlacksmith() { ApplyVendor("blacksmith", blacksmithSpin); }
-    void ApplyMerchant() { ApplyVendor("merchant", merchantSpin); }
+    void EnchantsmithTyped(float number, ETextCommit method) { VendorTyped("enchantsmith", enchantsmithSpin, method); }
+    void BlacksmithTyped(float number, ETextCommit method) { VendorTyped("blacksmith", blacksmithSpin, method); }
+    void MerchantTyped(float number, ETextCommit method) { VendorTyped("merchant", merchantSpin, method); }
+
+    // A level typed in a vendor's box, like CombatTyped: Enter redraws the page, leaving the box doesn't.
+    void VendorTyped(string vendor, USpinBox? spin, ETextCommit method)
+    {
+        if (adapter == null || spin == null) return;
+        adapter.VendorLevelInfo(vendor, out var level, out var maximum);
+        if ((int)spin.GetValue() == level) return;
+        if (method == ETextCommit.OnEnter) { ApplyVendor(vendor, spin); return; }
+        var result = adapter.SetVendorLevel(vendor, (int)spin.GetValue());
+        adapter.VendorLevelInfo(vendor, out level, out maximum);
+        spin.SetValue(level);
+        Report(result);
+    }
 
     void ApplyVendor(string vendor, USpinBox? spin)
     {
@@ -1862,6 +1933,17 @@ public class Menu : ModMenu
         var result = adapter.SetGameSpeed(gameSpeedSpin.GetValue());
         gameSpeedInput = 0;
         Page();
+        Report(result);
+    }
+
+    // A speed typed in the box, like CombatTyped: Enter redraws the page, leaving the box doesn't.
+    void GameSpeedTyped(float number, ETextCommit method)
+    {
+        if (adapter == null || gameSpeedSpin == null || gameSpeedSpin.GetValue() == adapter.GameSpeed) return;
+        if (method == ETextCommit.OnEnter) { ApplyGameSpeed(); return; }
+        var result = adapter.SetGameSpeed(gameSpeedSpin.GetValue());
+        gameSpeedInput = 0;
+        gameSpeedSpin.SetValue(adapter.GameSpeed);
         Report(result);
     }
 

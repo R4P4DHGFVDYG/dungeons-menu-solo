@@ -1,5 +1,12 @@
 # Histórico de versões
 
+## 0.4.0
+- Usa o **Blueprint Loader** oficial (Nexus Mods, mod 2), que o jogador instala antes. O pacote traz só o menu; o BetterBlueprintLoader saiu do Nexus e o instalador recusa usá-lo. Quem vem da 0.3.x roda antes o `Remover.ps1` da pasta antiga.
+- **Funciona aberto direto pelo Steam.** Antes, sem o `Iniciar-Mod.ps1`, o menu só mostrava os valores, mesmo offline. O iniciador ficou opcional (backup dos saves). Online, cooperativo e sem herói vivo continuam bloqueados.
+- **Sem botão Aplicar** em Combate, Experiência e saque, níveis da vila e velocidade do jogo: as chaves e o − / + valem na hora, e um número digitado vale ao apertar Enter ou sair da caixa. Se o jogo recusar, a opção volta ao valor em uso.
+- O som do jogo não fica mais abafado com o menu aberto (ele usava os sons do menu de pausa).
+- Clicar numa opção não leva mais a página de volta para o topo.
+
 ## 0.3.8
 - Compatível com o jogo **1.1.3.0** (build 25910487), atualizado pelo Steam em 22/10/2026. O iniciador e o menu passam a aceitar esse executável; o 1.1.2.0 deixa de ser aceito.
 - A API do jogo novo foi comparada com tudo o que o menu e o loader usam e nada mudou. O visual, o combate lembrado e os atalhos F5 a F8 foram conferidos em partida.

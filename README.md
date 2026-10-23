@@ -4,7 +4,7 @@
 
 **Um menu de trapaças em português, com o visual do próprio jogo, para partidas solo/offline.**
 
-![Versão](https://img.shields.io/badge/versão-0.3.8-orange)
+![Versão](https://img.shields.io/badge/versão-0.4.0-orange)
 ![Jogo](https://img.shields.io/badge/Minecraft%20Dungeons%20II-1.1.3.0%20(Steam)-2ea44f)
 ![Modo](https://img.shields.io/badge/modo-solo%20%2F%20offline-blue)
 ![NeoRuneExtended](https://img.shields.io/badge/NeoRuneExtended-1.0.0-8a2be2)
@@ -35,15 +35,10 @@
 
 O **Menu Solo** é um mod para **Minecraft Dungeons II** (Steam, versão 1.1.3.0). Ele abre com **Insert** por cima do jogo e reúne, em sete abas, o que normalmente exigiria horas de farm: recursos, nível, itens, mobs, encantamentos, combate e controle do mundo.
 
-- Escrito em C# e compilado para Blueprint com o [NeoRuneExtended](https://github.com/thororen1234/NeoRuneExtended); carregado pelo [Better Blueprint Loader](https://github.com/thororen1234/MCDII-Mods).
+- Escrito em C# e compilado para Blueprint com o [NeoRuneExtended](https://github.com/thororen1234/NeoRuneExtended); carregado pelo [Blueprint Loader](https://www.nexusmods.com/minecraftdungeons2/mods/2) oficial, de ewanhowell5195.
 - Usa as peças visuais do próprio jogo: abas com a linha laranja, botões verdes de confirmar, interruptores e molduras da tela de Configurações, ícones de itens e categorias.
 - Cada ação mostra no rodapé **o que o jogo respondeu**, e não só o que foi pedido.
-- Só funciona **solo/offline**, aberto pelo iniciador que confere a versão do jogo e faz backup dos saves.
-
-<div align="center">
-<img src="docs/images/00-titulo.jpg" alt="Tela de título com o loader e o mod carregados" width="700">
-<br><sub>Tela de título: no canto, "1 NeoRuneExtended mod loaded" e "BetterBlueprintLoader 2.1.1: 1 of 1 mods running".</sub>
-</div>
+- Só funciona **solo/offline**. O jogo é aberto normalmente pelo Steam.
 
 ## Abas do menu
 
@@ -58,7 +53,7 @@ Adicione ou defina **esmeraldas**, **fragmentos de eco** e **pontos de encantame
 | Função | Como funciona |
 |---|---|
 | **Subir nível** | Usa a experiência do próprio jogo, um nível por vez, para o jogo fazer a subida dele. Baixar não é possível |
-| **Vila** | Nível do **Encantador**, do **Ferreiro** e do **Mercador** até o máximo do jogo. O Encantador libera as melhorias de encantamento que o jogo bloqueia |
+| **Vila** | Nível do **Encantador**, do **Ferreiro** e do **Mercador** até o máximo do jogo; o − / + muda o nível na hora. O Encantador libera as melhorias de encantamento que o jogo bloqueia |
 | **Renovar loja do Mercador** | Renova o estoque do Mercador pelo próprio jogo, de graça e de qualquer lugar do mapa (testado: a troca foi usada e nenhuma esmeralda foi cobrada) |
 | **Experiência e saque** | Multiplicador de experiência, multiplicador de saque, **raridade máxima**, **drop garantido** e **saque duplicado** |
 
@@ -96,7 +91,7 @@ Cerca de 220 tipos de mob, com busca e páginas. Os mobs nascem perto do herói,
 | Ataque | **Crítico sempre**, dano (1–100×), velocidade de ataque, dano crítico |
 | Movimento | Velocidade de movimento, altura do pulo |
 
-Tudo vale só depois de **Aplicar**, e fica **lembrado**: volta sozinho ao trocar de fase, ao reabrir o jogo e depois que o herói morre e renasce. **Restaurar originais** desliga tudo e esquece a escolha.
+Tudo vale na hora em que você muda, sem botão de aplicar (um número digitado vale ao apertar Enter ou sair da caixa), e fica **lembrado**: volta sozinho ao trocar de fase, ao reabrir o jogo e depois que o herói morre e renasce. **Restaurar originais** desliga tudo e esquece a escolha.
 
 ### Mundo
 
@@ -133,17 +128,23 @@ Funcionam com o menu fechado e mostram um aviso no canto da tela. As teclas pode
 > [!WARNING]
 > O que você altera em Recursos, Herói, Itens e Encantamentos **fica salvo no herói**, e subir o nível não pode ser desfeito. Nos testes, restaurar um backup **não** desfez alterações já salvas pelo jogo. Se não quiser arriscar, use um herói descartável.
 
-1. Baixe o ZIP da versão em **Releases** (`DungeonsMenu-0.3.8-experimental.zip`). Ele já traz o mod compilado, o Better Blueprint Loader 2.1.1 e os scripts.
-2. Extraia para uma pasta **permanente**, fora da pasta do jogo e fora de `Dungeons2\Saved`. Essa pasta guarda o registro da instalação e os seus backups.
-3. Com o jogo fechado, abra o PowerShell nessa pasta:
+1. Instale o [**Blueprint Loader**](https://www.nexusmods.com/minecraftdungeons2/mods/2) como explica a página dele (a pasta `BlueprintLoader` vai dentro de `Dungeons\Content\Paks\~mods`). Use só esse loader: vindo da 0.3.x, que trazia o BetterBlueprintLoader, rode antes o `Remover.ps1` da pasta antiga.
+2. Baixe o ZIP da versão em **Releases** (`DungeonsMenu-0.4.0-experimental.zip`). Ele traz o mod compilado e os scripts.
+3. Extraia para uma pasta **permanente**, fora da pasta do jogo e fora de `Dungeons2\Saved`. Essa pasta guarda o registro da instalação e os seus backups.
+4. Com o jogo fechado, abra o PowerShell nessa pasta:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\Instalar.ps1 -Verificar
 powershell -NoProfile -ExecutionPolicy Bypass -File .\Instalar.ps1
-powershell -NoProfile -ExecutionPolicy Bypass -File .\Iniciar-Mod.ps1
 ```
 
-**Abra o jogo sempre pelo `Iniciar-Mod.ps1`.** Ele confere a versão do executável, faz um backup verificado dos saves e pede ao Steam para abrir o jogo. Aberto direto pelo Steam, o menu só mostra os valores e não altera nada.
+5. Abra o jogo normalmente pelo Steam.
+
+Opcional: o `Iniciar-Mod.ps1` confere a versão do executável, faz um backup verificado dos saves e pede ao Steam para abrir o jogo:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\Iniciar-Mod.ps1
+```
 
 O caminho padrão do jogo é `C:\Program Files (x86)\Steam\steamapps\common\Minecraft Dungeons II`. Para outra biblioteca do Steam, use `-GamePath 'caminho completo'` nos scripts.
 
@@ -171,7 +172,6 @@ Dicas:
 
 O menu só altera alguma coisa quando todas estas condições valem:
 
-- o jogo foi aberto pelo iniciador, com o carimbo da versão 1.1.3.0;
 - a partida é solo/offline, sem cooperativo local;
 - há um herói vivo e o mapa terminou de carregar.
 
@@ -185,7 +185,7 @@ flowchart LR
     A -->|abre| M[Menu<br/>7 abas, visual do jogo]
     A -->|Tick| G[GameAdapter]
     M -->|ações| G
-    G --> S[SessionGuard<br/>iniciador, offline, herói vivo]
+    G --> S[SessionGuard<br/>offline, herói vivo]
     G --> GAS[Atributos GAS do herói<br/>vida, dano, saque, XP, vila]
     G --> INV[Inventário<br/>itens, raridade, encantamentos]
     G --> W[Mundo<br/>hora, velocidade, mobs, posições]
@@ -223,7 +223,7 @@ O script compila o mod e roda as verificações de regras. Os arquivos gerados f
 powershell -NoProfile -ExecutionPolicy Bypass -File .\package-scripts\Test-Package.ps1
 ```
 
-Estado atual: **49** verificações de regras e **113** verificações do instalador passando.
+Estado atual: **49** verificações de regras e **119** verificações do instalador passando.
 
 ## Diagnóstico
 
@@ -260,12 +260,12 @@ O arquivo não contém credenciais. Linhas `[diag]` mostram o que o jogo devolve
 - **Sem teste confirmado:** multiplicador de experiência, troca de raridade e de poder do item equipado e o modo livre de encantamentos (acima do máximo normal o efeito real não foi comprovado).
 - **Raridade máxima:** o feixe de luz dos drops no chão continua com a cor sorteada pelo jogo, mesmo com o item já Especial.
 - **Mobs:** em 16 dos cerca de 220 tipos o menu não encontra a classe do mob, e a fila de criação do jogo não os criou nos testes.
-- **Versão do jogo:** o iniciador só abre o jogo na versão 1.1.3.0. Quando o jogo atualiza, ele recusa abrir até sair uma versão do mod para o build novo.
+- **Versão do jogo:** o instalador e o iniciador só aceitam a versão 1.1.3.0. O menu em si não confere a versão: depois de uma atualização do jogo ele continua instalado, mas pode falhar se a atualização mudar algo que ele usa.
 
 ## Créditos e licença
 
 - Código do menu, scripts e testes: **MIT** (veja [`LICENSE`](LICENSE)).
-- [NeoRuneExtended](https://github.com/thororen1234/NeoRuneExtended) (MIT) e [Better Blueprint Loader](https://github.com/thororen1234/MCDII-Mods) (GPL-3.0): veja [`THIRD-PARTY.md`](THIRD-PARTY.md).
+- [NeoRuneExtended](https://github.com/thororen1234/NeoRuneExtended) (MIT) e [Blueprint Loader](https://www.nexusmods.com/minecraftdungeons2/mods/2), de ewanhowell5195: veja [`THIRD-PARTY.md`](THIRD-PARTY.md).
 - Criação assistida por Codex e Claude Code.
 
 <sub>Minecraft Dungeons II pertence aos respectivos titulares. Este projeto não é afiliado nem endossado pela Mojang Studios ou pela Microsoft. Use por sua conta e risco, só em partidas solo.</sub>

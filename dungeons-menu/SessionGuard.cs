@@ -12,13 +12,8 @@ public static class SessionGuard
     public static bool CanWrite(UObject context, out string reason)
     {
         reason = "";
-        // The launcher hashes the executable on every launch. No persisted permission survives a game update.
-        if (!UKismetSystemLibrary.ParseParamValue(UKismetSystemLibrary.GetCommandLine(), "DungeonsMenu.compat=", out var stamp)
-            || stamp != Rules.ExecutableHash)
-        {
-            reason = "Somente leitura: abra pelo Iniciar-Mod.ps1 para verificar a versão e criar o backup.";
-            return false;
-        }
+        // No launcher stamp: the public release starts from Steam like any other mod (before, nothing could be changed
+        // unless the game was opened by Iniciar-Mod.ps1, even offline).
         if (UOnlineUtil.IsOnlineGameMode())
         {
             reason = "Alterações disponíveis apenas em partida solo/offline.";

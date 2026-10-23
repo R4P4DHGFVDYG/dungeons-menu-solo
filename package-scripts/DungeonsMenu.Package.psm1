@@ -3,7 +3,8 @@ $ErrorActionPreference = 'Stop'
 $script:ExecutableHash = '3842102bb05fc532b22e97992d61c2248d115be80ff752ff9b6843bf4acd7005'
 $script:GameVersion = '1.1.3.0'
 $script:SteamBuild = '25910487'
-$script:Names = @('BetterBlueprintLoader_P.pak', 'BetterBlueprintLoader_P.utoc', 'BetterBlueprintLoader_P.ucas', 'DungeonsMenu_P.pak', 'DungeonsMenu_P.utoc', 'DungeonsMenu_P.ucas')
+$script:Names = @('DungeonsMenu_P.pak', 'DungeonsMenu_P.utoc', 'DungeonsMenu_P.ucas')
+$script:LoaderPage = 'https://www.nexusmods.com/minecraftdungeons2/mods/2'
 
 function Assert-DmPlainPath([string]$Path) {
     $current = [IO.Path]::GetFullPath($Path)
@@ -70,6 +71,18 @@ function Assert-DmGame([string]$GamePath) {
     return $exe
 }
 
+# The menu runs on the official Blueprint Loader (Nexus mod 2); two loaders in ~mods conflict.
+function Assert-DmLoader([string]$GamePath) {
+    $mods = Get-DmChild $GamePath 'Dungeons/Content/Paks/~mods'
+    $paks = if (Test-Path -LiteralPath $mods -PathType Container) { @(Get-ChildItem -LiteralPath $mods -Recurse -File -Filter '*.pak') } else { @() }
+    if (@($paks | Where-Object { $_.Name -ieq 'BetterBlueprintLoader_P.pak' }).Count) {
+        throw 'Use um loader so: remova o BetterBlueprintLoader de Paks\~mods (o menu usa o Blueprint Loader oficial).'
+    }
+    if (-not @($paks | Where-Object { $_.Name -ieq 'BlueprintLoader_P.pak' }).Count) {
+        throw "Blueprint Loader oficial ausente: instale $script:LoaderPage em Paks\~mods\BlueprintLoader antes do menu."
+    }
+}
+
 function Get-DmManifest([string]$PackagePath) {
     $manifest = Get-Content -LiteralPath (Get-DmChild $PackagePath 'manifest.json') -Raw | ConvertFrom-Json
     if ($manifest.schemaVersion -ne 1 -or @($manifest.files).Count -ne $script:Names.Count) { throw 'Manifesto de pacote invalido.' }
@@ -85,7 +98,7 @@ function Get-DmManifest([string]$PackagePath) {
     $payload = Get-DmChild $PackagePath 'payload'
     $actual = @(Get-ChildItem -LiteralPath $payload -Force)
     if ($actual.Count -ne $script:Names.Count -or @($actual | Where-Object { $_.PSIsContainer -or $script:Names -cnotcontains $_.Name }).Count) {
-        throw 'A pasta payload deve conter somente os seis arquivos do manifesto.'
+        throw 'A pasta payload deve conter somente os tres arquivos do manifesto.'
     }
     return $manifest
 }
@@ -207,6 +220,7 @@ function Restore-DmSaveBackup([string]$PackagePath, [string]$BackupPath, [string
 function Install-DmPackage([string]$PackagePath, [string]$GamePath, [switch]$DryRun) {
     Assert-DmGameClosed
     $null = Assert-DmGame $GamePath
+    Assert-DmLoader $GamePath
     $manifest = Get-DmManifest $PackagePath
     $destination = Get-DmChild $GamePath 'Dungeons/Content/Paks/~mods'
     $receiptPath = Get-DmChild $PackagePath 'installation.json'
@@ -309,6 +323,7 @@ function Remove-DmPackage([string]$PackagePath, [string]$GamePath, [switch]$DryR
 function Start-DmMod([string]$PackagePath, [string]$GamePath, [string]$SavedPath, [string]$SteamPath, [switch]$DryRun) {
     Assert-DmGameClosed
     $null = Assert-DmGame $GamePath
+    Assert-DmLoader $GamePath
     $manifest = Get-DmManifest $PackagePath
     foreach ($file in $manifest.files) {
         $installed = Get-DmChild $GamePath ('Dungeons/Content/Paks/~mods/' + $file.name)

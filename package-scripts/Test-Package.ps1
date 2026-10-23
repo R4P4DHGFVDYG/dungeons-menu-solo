@@ -45,6 +45,7 @@ function Fixture {
     Put (Join-Path $saved 'Config/Windows/Game.ini') 'fixture-settings'
     Put (Join-Path $saved 'SaveGames_BACKUP/hero.dat') 'fixture-old-hero'
     Put $steam 'fixture-steam-never-executed'
+    Put (Join-Path $game 'Dungeons/Content/Paks/~mods/BlueprintLoader/BlueprintLoader_P.pak') 'fixture-official-loader'
     $files = @()
     foreach ($name in (& $module { $script:Names })) {
         $file = Join-Path $package ('payload/' + $name)
@@ -71,8 +72,8 @@ foreach ($file in Get-ChildItem -LiteralPath $PSScriptRoot -File | Where-Object 
 
 $f = Fixture
 $plan = Install-DmPackage $f.package $f.game -DryRun
-Assert ($plan.FileCount -eq 6) 'Dry run reconhece seis arquivos'
-Assert (-not (Test-Path -LiteralPath $f.mods)) 'Dry run nao cria pasta do jogo'
+Assert ($plan.FileCount -eq 3) 'Dry run reconhece tres arquivos'
+Assert (-not (Test-Path -LiteralPath (Join-Path $f.mods 'DungeonsMenu_P.pak'))) 'Dry run nao escreve no jogo'
 Assert (-not (Test-Path -LiteralPath (Join-Path $f.package 'installation.json'))) 'Dry run nao grava registro'
 
 & $module { $script:GameRunning = $true }
@@ -80,7 +81,7 @@ Assert-Throws { Install-DmPackage $f.package $f.game } 'Feche Minecraft'
 & $module { $script:GameRunning = $false }
 Put $f.exe 'updated-executable'
 Assert-Throws { Install-DmPackage $f.package $f.game } 'Executavel desconhecido'
-Assert (-not (Test-Path -LiteralPath $f.mods)) 'Versao desconhecida nao escreve'
+Assert (-not (Test-Path -LiteralPath (Join-Path $f.mods 'DungeonsMenu_P.pak'))) 'Versao desconhecida nao escreve'
 
 $f = Fixture
 Put (Join-Path $f.game 'MicrosoftGame.config') '<Game><Identity Name="WrongGame" Version="1.1.3.0" /></Game>'
@@ -93,7 +94,7 @@ Put (Join-Path $f.package 'payload/DungeonsMenu_P.pak') 'tampered'
 Assert-Throws { Install-DmPackage $f.package $f.game } 'Integridade'
 $f = Fixture
 Put (Join-Path $f.package 'payload/Unrelated.pak') 'unexpected'
-Assert-Throws { Install-DmPackage $f.package $f.game } 'somente os seis'
+Assert-Throws { Install-DmPackage $f.package $f.game } 'somente os tres'
 $f = Fixture
 $manifestPath = Join-Path $f.package 'manifest.json'
 $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
@@ -107,6 +108,19 @@ $manifest.files[0] = $manifest.files[1]
 Json $manifest $manifestPath
 Assert-Throws { Install-DmPackage $f.package $f.game } 'duplicado'
 
+$f = Fixture
+Remove-Item -LiteralPath (Join-Path $f.mods 'BlueprintLoader') -Recurse
+Assert-Throws { Install-DmPackage $f.package $f.game } 'Blueprint Loader oficial ausente'
+Assert (-not (Test-Path -LiteralPath (Join-Path $f.mods 'DungeonsMenu_P.pak'))) 'Sem loader oficial nada e instalado'
+$f = Fixture
+Put (Join-Path $f.mods 'BetterBlueprintLoader/BetterBlueprintLoader_P.pak') 'other-loader'
+Assert-Throws { Install-DmPackage $f.package $f.game } 'Use um loader so'
+Assert (-not (Test-Path -LiteralPath (Join-Path $f.mods 'DungeonsMenu_P.pak'))) 'Dois loaders bloqueiam a instalacao'
+$f = Fixture
+$null = Install-DmPackage $f.package $f.game
+Remove-Item -LiteralPath (Join-Path $f.mods 'BlueprintLoader') -Recurse
+Assert-Throws { Start-DmMod $f.package $f.game $f.saved $f.steam } 'Blueprint Loader oficial ausente'
+Assert ((& $module { $script:Launches.Count }) -eq 0) 'Loader removido depois da instalacao bloqueia inicio'
 $f = Fixture
 $conflict = Join-Path $f.mods 'DungeonsMenu_P.pak'
 Put $conflict 'previous-mod'
@@ -130,13 +144,13 @@ Assert (-not (Test-Path -LiteralPath (Join-Path $f.mods 'DungeonsMenu_P.utoc')))
 Assert (-not (Test-Path -LiteralPath (Join-Path $f.package 'installation.json'))) 'Registro concluido arquivado'
 
 $f = Fixture
-Put (Join-Path $f.mods 'BetterBlueprintLoader_P.pak') 'fixture-BetterBlueprintLoader_P.pak'
+Put (Join-Path $f.mods 'DungeonsMenu_P.utoc') 'fixture-DungeonsMenu_P.utoc'
 $null = Install-DmPackage $f.package $f.game
 Put (Join-Path $f.mods 'DungeonsMenu_P.pak') 'user-change'
 $actions = @(Remove-DmPackage $f.package $f.game)
 Assert (@($actions | Where-Object { $_.action -eq 'PreservarAlterado' }).Count -eq 1) 'Remocao informa arquivo alterado'
 Assert ((Get-Content -LiteralPath (Join-Path $f.mods 'DungeonsMenu_P.pak') -Raw) -eq 'user-change') 'Alteracao posterior preservada'
-Assert (Test-Path -LiteralPath (Join-Path $f.mods 'BetterBlueprintLoader_P.pak')) 'Arquivo identico preexistente nao pertence ao pacote'
+Assert (Test-Path -LiteralPath (Join-Path $f.mods 'DungeonsMenu_P.utoc')) 'Arquivo identico preexistente nao pertence ao pacote'
 Assert (Test-Path -LiteralPath (Join-Path $f.package 'installation.json')) 'Registro preservado quando existe conflito'
 $receiptPath = Join-Path $f.package 'installation.json'
 $receipt = Get-Content -LiteralPath $receiptPath -Raw | ConvertFrom-Json
@@ -213,7 +227,7 @@ $receipt = Get-Content -LiteralPath (Join-Path $f.package 'installation.json') -
 Put (Join-Path $f.package ($receipt.backup + '/DungeonsMenu_P.pak')) 'tampered-original'
 Assert-Throws { Remove-DmPackage $f.package $f.game } 'Backup do arquivo anterior'
 Assert ((Hash $conflict) -eq (Hash (Join-Path $f.package 'payload/DungeonsMenu_P.pak'))) 'Backup alterado impede sobrescrita do mod'
-Assert (Test-Path -LiteralPath (Join-Path $f.mods 'BetterBlueprintLoader_P.pak')) 'Preflight de remocao falha antes de remover qualquer arquivo'
+Assert (Test-Path -LiteralPath (Join-Path $f.mods 'DungeonsMenu_P.utoc')) 'Preflight de remocao falha antes de remover qualquer arquivo'
 
 $f = Fixture
 $backup = & $module { param($Package, $Saved) New-DmSaveBackup $Package $Saved } $f.package $f.saved

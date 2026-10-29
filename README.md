@@ -4,7 +4,7 @@
 
 **Um menu de trapaças em português, com o visual do próprio jogo, para partidas solo/offline.**
 
-![Versão](https://img.shields.io/badge/versão-0.4.0-orange)
+![Versão](https://img.shields.io/badge/versão-0.4.4-orange)
 ![Jogo](https://img.shields.io/badge/Minecraft%20Dungeons%20II-1.1.3.0%20(Steam)-2ea44f)
 ![Modo](https://img.shields.io/badge/modo-solo%20%2F%20offline-blue)
 ![NeoRuneExtended](https://img.shields.io/badge/NeoRuneExtended-1.0.0-8a2be2)
@@ -129,7 +129,7 @@ Funcionam com o menu fechado e mostram um aviso no canto da tela. As teclas pode
 > O que você altera em Recursos, Herói, Itens e Encantamentos **fica salvo no herói**, e subir o nível não pode ser desfeito. Nos testes, restaurar um backup **não** desfez alterações já salvas pelo jogo. Se não quiser arriscar, use um herói descartável.
 
 1. Instale o [**Blueprint Loader**](https://www.nexusmods.com/minecraftdungeons2/mods/2) como explica a página dele (a pasta `BlueprintLoader` vai dentro de `Dungeons\Content\Paks\~mods`). Use só esse loader: vindo da 0.3.x, que trazia o BetterBlueprintLoader, rode antes o `Remover.ps1` da pasta antiga.
-2. Baixe o ZIP da versão em **Releases** (`DungeonsMenu-0.4.0-experimental.zip`). Ele traz o mod compilado e os scripts.
+2. Baixe o ZIP da versão em **Releases** (`DungeonsMenu-0.4.4-experimental.zip`). Ele traz o mod compilado e os scripts.
 3. Extraia para uma pasta **permanente**, fora da pasta do jogo e fora de `Dungeons2\Saved`. Essa pasta guarda o registro da instalação e os seus backups.
 4. Com o jogo fechado, abra o PowerShell nessa pasta:
 

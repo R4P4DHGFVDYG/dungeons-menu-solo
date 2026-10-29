@@ -2226,7 +2226,8 @@ public class GameAdapter : UObject, IMenuSpawnResponse
     /// <summary>
     /// Takes the hero to the nearest storm generator not already beside them (0.4.1 in game: the game places them far away).
     /// The game keeps one at a time and makes the next once it is defeated (0.4.2 in game: Medium, Easy, then Hard). The hero
-    /// lands a few metres short of it, on the navmesh floor.
+    /// lands a few metres short of it, on the navmesh floor. It only finds the generator within about 40 m, once its health
+    /// bar shows (user's test, 0.4.4).
     /// </summary>
     public string GoToGenerator()
     {
@@ -2246,7 +2247,7 @@ public class GameAdapter : UObject, IMenuSpawnResponse
             if (target == null || distance < best) { target = actor; best = distance; }
         }
         Diag($"storm generators={count} {seen}");
-        if (count == 0) return "Nenhum gerador ativo agora. O jogo cria um por vez: o próximo aparece alguns segundos depois que o atual é derrotado.";
+        if (count == 0) return "Nenhum gerador por perto. Chegue a menos de 40 m do gerador ativo, até aparecer a barra de vida dele, e tente de novo. O jogo cria um por vez: o próximo aparece alguns segundos depois que o atual é derrotado.";
         if (target == null) return "O herói já está junto do gerador ativo. Derrote-o; o próximo aparece depois.";
         var hero = player.K2_GetActorLocation();
         var at = target.K2_GetActorLocation();

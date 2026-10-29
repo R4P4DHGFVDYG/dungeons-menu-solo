@@ -1581,7 +1581,7 @@ public class Menu : ModMenu
         if (end != null) end.OnClicked += EndStorm;
         var toGenerator = WorldButton(stormRow, "IR AO GERADOR", 14);
         if (toGenerator != null) toGenerator.OnClicked += GoGenerator;
-        AddV(left, Wrapped("Experimental: dura 15 min (o tempo corre com o menu aberto). O jogo cria um gerador por vez; IR AO GERADOR leva ao que estiver ativo. A tempestade é da área onde o herói está; o jogo pode recusar fora das áreas que têm tempestade.", 18, Muted()), 8);
+        AddV(left, Wrapped("Experimental: dura 15 min (o tempo corre com o menu aberto). O jogo cria um gerador por vez; IR AO GERADOR leva ao que estiver ativo, mas só com o herói a menos de 40 m dele (quando a barra de vida do gerador aparece). A tempestade é da área onde o herói está; o jogo pode recusar fora das áreas que têm tempestade.", 18, Muted()), 8);
 
         Section(left, "INIMIGOS POR PERTO", 30);
         radiusSpin = StepRow(left, "radius", "Raio", "Em metros, ao redor do herói. Só inimigos: pets, invocações e aldeões ficam de fora.", 5, 50, radiusInput > 0 ? radiusInput : 20, 0, 12);

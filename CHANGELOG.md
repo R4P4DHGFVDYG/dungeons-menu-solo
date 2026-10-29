@@ -1,5 +1,13 @@
 # Histórico de versões
 
+## 0.4.4
+- Reúne as versões de teste 0.4.1 a 0.4.3, que não foram publicadas.
+- **Editor de efeitos**: a aba Encantar ganhou o modo **EFEITOS**. Ele mostra os efeitos do item equipado e deixa adicionar, trocar o nível ou remover. O nível vai até 3 no normal e até 10 no livre (acima de 3 é experimental). O menu grava direto no item e o reequipa.
+- **Efeitos em artefatos**: no modo EFEITOS, os artefatos equipados entram no fim da lista. Encantamento continua só em armas e armaduras, porque o jogo não deixa encantar artefato.
+- **Talismãs**: nova categoria na lista de itens. Cria o talismã no nível escolhido (1 a 3) e muda o nível de um que o herói já tem, com os efeitos de cada nível.
+- **Tempestade de Almas**: o botão **IR AO GERADOR** leva o herói ao gerador ativo, mas só funciona com o herói a menos de 40 m dele, quando a barra de vida do gerador aparece. Mais longe, o botão não acha o gerador.
+- **Baús da tempestade**: eles ignoram o multiplicador de saque. Com **Saque ×N** ligado, cada equipamento que sai de um deles ganha mais N−1 do mesmo tipo e raridade direto no inventário, com efeitos sorteados de novo. A comida dos baús não é copiada.
+
 ## 0.4.0
 - Usa o **Blueprint Loader** oficial (Nexus Mods, mod 2), que o jogador instala antes. O pacote traz só o menu; o BetterBlueprintLoader saiu do Nexus e o instalador recusa usá-lo. Quem vem da 0.3.x roda antes o `Remover.ps1` da pasta antiga.
 - **Funciona aberto direto pelo Steam.** Antes, sem o `Iniciar-Mod.ps1`, o menu só mostrava os valores, mesmo offline. O iniciador ficou opcional (backup dos saves). Online, cooperativo e sem herói vivo continuam bloqueados.

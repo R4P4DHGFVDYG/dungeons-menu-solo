@@ -1,5 +1,22 @@
 # Histórico de versões
 
+## 1.0.0
+- Primeira versão final: revisão de design, funções e testes. Cada função da tabela do README foi testada em partida.
+- **Raridade, poder e efeitos em itens comuns:** a lista de itens equipados mostra todas as armas e armaduras, e não só as que o jogo deixa encantar. Antes, um herói só com itens comuns não tinha nada para editar.
+- **Efeitos acima do nível 3 confirmados:** a força escolhida age (Recarga rápida num artefato de 4 s: 3,1 s no nível 3 e 1,7 s no nível 10). A dica do jogo continua mostrando o valor do nível 3.
+- **Talismãs:** o painel mostrava "0% de dano extra"; agora mostra o valor do talismã ("Ataques corpo a corpo causam 35% de dano extra").
+- **Mobs:** a lista não tem mais os tipos-base internos ("Default · Hostile"…), objetos e NPCs. Nomes repetidos ganham a variante ("Abelha (Honeypot)"). Um mob visto perto do herói pode ser criado mesmo quando o tipo dele não aponta a classe. A fila de criação do jogo, que nunca criou nada, deixou de ser usada.
+- **Tamanho do menu (− / +):** às vezes o menu desenquadrava até ser reaberto. Agora ele reabre sozinho, na mesma aba, a cada mudança de tamanho.
+- **Subir nível** é só pela experiência do jogo; saiu a gravação direta do nível, que nunca chegou a ser usada.
+- **Design:**
+  - o rodapé mostra uma dica da aba em vez da mensagem que ficou de outra;
+  - as vagonetas aparecem com os nomes do mapa ("Estação Refúgio") em vez de "Plains A1 · Barn";
+  - nomes longos ficam em letra menor em vez de cortados;
+  - o item escolhido não clareia mais sob o mouse;
+  - saíram os avisos "experimental" e "em validação" das funções já testadas.
+- **Testes:** as regras puras (categorias, cópias do baú, limites de efeito, talismã e modo livre, versão) passaram para `Rules.cs`, e o teste de regras foi de 49 para 66 verificações.
+- O log não repete as mesmas linhas de combate a cada clique, então guarda mais do que aconteceu.
+
 ## 0.4.4
 - Reúne as versões de teste 0.4.1 a 0.4.3, que não foram publicadas.
 - **Editor de efeitos**: a aba Encantar ganhou o modo **EFEITOS**. Ele mostra os efeitos do item equipado e deixa adicionar, trocar o nível ou remover. O nível vai até 3 no normal e até 10 no livre (acima de 3 é experimental). O menu grava direto no item e o reequipa.

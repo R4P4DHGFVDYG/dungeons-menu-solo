@@ -49,7 +49,6 @@ public class Menu : ModMenu
     const int MinZoom = 80;
     const int MaxZoom = 130;
     const int ZoomStep = 10;
-    const string Version = "0.4.4";
     const int TabCount = 7;
     const int TabResources = 0;
     const int TabHero = 1;
@@ -132,6 +131,8 @@ public class Menu : ModMenu
 
     // Mobs tab.
     List<string> mobTags;
+    List<string> mobNameTags;
+    List<string> mobNames;
     string mobQuery;
     int mobPage;
     string selectedMob;
@@ -160,6 +161,8 @@ public class Menu : ModMenu
         catalogSlots = new List<string>();
         shownTags = new List<string>();
         mobTags = new List<string>();
+        mobNameTags = new List<string>();
+        mobNames = new List<string>();
         equipIds = new List<string>();
         enchantTags = new List<string>();
         effectTags = new List<string>();
@@ -290,6 +293,20 @@ public class Menu : ModMenu
         BuildFooter();
         Page();
         Report($"Tamanho do menu: {zoom}%.");
+        // Resized in place, the scaled canvas sometimes came out of frame until the menu was opened again, even laid out
+        // again for a few frames (1.0.0 tests), so the mod actor opens it again now, on this tab.
+        ReopenRequested = true;
+    }
+
+    /// <summary>Set after a zoom: the mod actor closes the menu and opens it again on <see cref="CurrentTab"/>.</summary>
+    public bool ReopenRequested;
+
+    public int CurrentTab => tab;
+
+    public void ShowTab(int index)
+    {
+        OpenTab(index);
+        Page();
     }
 
     static float Fit(float value, float min, float max) => value < min ? min : value > max ? max : value;
@@ -379,6 +396,16 @@ public class Menu : ModMenu
         var padding = new FMargin { Left = padX, Top = padY, Right = padX, Bottom = padY };
         if (visuals != null) button.SetStyle(visuals.Button(look, selected, padding));
         else button.SetBackgroundColor(Ui.Color(0.2f, 0.26f, 0.31f, 1));
+    }
+
+    // The game's list style; the chosen entry doesn't light up under the pointer, where its gold name was hard to read (1.0.0).
+    void ListStyle(UButton? button, bool selected, float padX, float padY)
+    {
+        StyleButton(button, ItemVisuals.LookList, false, padX, padY);
+        if (button == null || !selected || visuals == null) return;
+        var padding = new FMargin { Left = padX, Top = padY, Right = padX, Bottom = padY };
+        var style = visuals.Button(ItemVisuals.LookList, false, padding);
+        button.SetStyle(new FButtonStyle { Normal = style.Normal, Hovered = style.Normal, Pressed = style.Pressed, Disabled = style.Disabled, NormalPadding = padding, PressedPadding = padding });
     }
 
     void Fill(UButton? button, UWidget? content)
@@ -601,7 +628,7 @@ public class Menu : ModMenu
         AddH(footerRow, Small("-", PickZoom, "-"), 12, false, false);
         AddH(footerRow, Txt($"{zoom}%", ItemVisuals.PixelUi, 20, White()), 10, false, false);
         AddH(footerRow, Small("+", PickZoom, "+"), 10, false, false);
-        AddH(footerRow, Txt("v" + Version, ItemVisuals.Readable, 18, Muted()), 22, false, false);
+        AddH(footerRow, Txt("v" + ModVersion.Version, ItemVisuals.Readable, 18, Muted()), 22, false, false);
     }
 
     UWidget? Small(string label, int group, string id)
@@ -692,8 +719,19 @@ public class Menu : ModMenu
         if (next < 0 || next >= TabCount) return;
         if (next == TabEnchants) { equipIds.Clear(); enchantTags.Clear(); }
         if (next == TabMobs) mobTags.Clear();
+        // A message from another tab would linger in the footer (0.3.6 showed the mob catalog's on Encantamentos).
+        if (next != tab) status?.SetText(TabHint(next));
         tab = next;
     }
+
+    static string TabHint(int index) =>
+        index == TabResources ? "Escolha o recurso e o valor; o saldo aparece no canto da barra de abas."
+        : index == TabHero ? "Nível, vila e saque: as chaves e o − / + valem na hora."
+        : index == TabItems ? "Escolha a categoria e o item; a raridade e a quantidade valem para a criação."
+        : index == TabMobs ? "Os mobs nascem perto do herói e ficam parados com o menu aberto."
+        : index == TabEnchants ? "Escolha um item equipado; ENCANTAMENTOS e EFEITOS ficam no alto da lista do meio."
+        : index == TabCombat ? "As opções valem na hora e voltam sozinhas ao trocar de fase; Restaurar originais desliga tudo."
+        : "A hora, a velocidade e a tempestade valem para a fase atual.";
 
     // ---------------------------------------------------------------- Inputs
 
@@ -1007,9 +1045,9 @@ public class Menu : ModMenu
         var info = DetailPanel(main, "HERÓI", detailWidth, Gap);
         if (info == null) return;
         AddV(info, Txt("NÍVEL", ItemVisuals.PixelUi, 22, White()), 4);
-        AddV(info, Wrapped("Subir usa a experiência do próprio jogo; se o jogo não subir na hora, o nível é gravado direto (experimental). Baixar o nível não é possível.", 20, Light()), 10);
+        AddV(info, Wrapped("Subir usa a experiência do próprio jogo, um nível por vez. Baixar o nível não é possível.", 20, Light()), 10);
         AddV(info, Txt("VILA", ItemVisuals.PixelUi, 22, White()), 24);
-        AddV(info, Wrapped("Cada − / + muda o nível na hora. O nível do Encantador libera as melhorias de encantamento que o jogo bloqueia. Fica salvo no herói; confira depois de recarregar.", 20, Light()), 10);
+        AddV(info, Wrapped("Cada − / + muda o nível na hora. O nível do Encantador libera as melhorias de encantamento que o jogo bloqueia. Fica salvo no herói.", 20, Light()), 10);
         AddV(info, Txt("EXPERIÊNCIA E SAQUE", ItemVisuals.PixelUi, 22, White()), 24);
         AddV(info, Wrapped("Valem como as opções de combate: na hora em que você muda, ficam lembradas e Restaurar originais desliga tudo, inclusive o combate.", 20, Light()), 10);
     }
@@ -1148,7 +1186,7 @@ public class Menu : ModMenu
         var button = Tile(PickCategory, key);
         var row = Ui.Row(tree);
         if (button == null || row == null) return;
-        StyleButton(button, ItemVisuals.LookList, false, 14, 8);
+        ListStyle(button, active, 14, 8);
         var icon = visuals != null ? visuals.CategoryIcon(key) : null;
         if (icon != null) AddH(row, Picture(icon, 34, active ? Gold() : White()), 0, false, false);
         var label = Txt(CategoryName(key), ItemVisuals.PixelUi, 18, active ? Gold() : White());
@@ -1164,16 +1202,12 @@ public class Menu : ModMenu
         var text = itemQuery.ToLower();
         for (int i = 0; i < catalogTags.Count; i++)
         {
-            if (category != "all" && CategoryOf(catalogSlots[i]) != category) continue;
+            if (category != "all" && Rules.ItemCategory(catalogSlots[i]) != category) continue;
             var tag = catalogTags[i];
             if (text != "" && !tag.ToLower().Contains(text) && !TitleFor(PickItem, tag).ToLower().Contains(text)) continue;
             shownTags.Add(tag);
         }
     }
-
-    static string CategoryOf(string slot) =>
-        slot.Contains("Melee") ? "melee" : slot.Contains("Ranged") ? "ranged" : slot.Contains("Armor") ? "armor"
-        : slot.Contains("Artifact") ? "artifact" : slot.Contains("Talisman") ? "talisman" : slot.Contains("EnchantmentBook") ? "book" : "other";
 
     static string CategoryName(string key) =>
         key == "melee" ? "CORPO A CORPO" : key == "ranged" ? "À DISTÂNCIA" : key == "armor" ? "ARMADURAS"
@@ -1187,6 +1221,7 @@ public class Menu : ModMenu
         if (mobTags.Count == 0)
         {
             var all = adapter.MobCatalog("");
+            NameMobs(all);
             var text = mobQuery.ToLower();
             foreach (var tag in all)
                 if (text == "" || tag.ToLower().Contains(text) || MobTitle(tag).ToLower().Contains(text)) mobTags.Add(tag);
@@ -1240,12 +1275,58 @@ public class Menu : ModMenu
         AddV(panel, Wrapped("Os mobs ficam parados enquanto o menu está aberto; feche-o para eles agirem. Ligue a invencibilidade antes de criar muitos.", 19, Muted()), 18);
     }
 
-    // A mob's name: the game's, or its tag made readable (SW.Mob.BabySentinel: Baby Sentinel).
+    // A mob's name in the list (see NameMobs).
     string MobTitle(string tag)
     {
-        var title = visuals != null ? visuals.Title(tag) : tag;
-        return title != tag ? title : Pretty(tag);
+        int at = mobNameTags.IndexOf(tag);
+        return at >= 0 ? mobNames[at] : BaseMobTitle(tag);
     }
+
+    // A mob's own name: the game's; for a variant without one, its parent's and the variant (SW.Mob.Cat.Town: Gato (Town));
+    // else the tag made readable (SW.Mob.BabySentinel: Baby Sentinel).
+    string BaseMobTitle(string tag)
+    {
+        var title = visuals != null ? visuals.Title(tag) : tag;
+        if (title != tag) return title;
+        if (IsMobVariant(tag))
+        {
+            var parent = tag.Substring(0, tag.LastIndexOf("."));
+            var parentTitle = visuals != null ? visuals.Title(parent) : parent;
+            if (parentTitle != parent) return parentTitle + " (" + Pretty(tag.Substring(tag.LastIndexOf(".") + 1)) + ")";
+        }
+        return Pretty(tag);
+    }
+
+    // The catalog's names. Two types with one name (0.4.4 listed Abelha, Zumbi Bebê and Escavador twice) get the part of
+    // the type that tells them apart: a variant its last part (Abelha (Honeypot)); of base types sharing it, the shortest
+    // keeps the plain name and the others what they add to it (SW.Mob.BabyZombieSoulImbalance: Zumbi Bebê (Soul Imbalance)).
+    void NameMobs(List<string> all)
+    {
+        mobNameTags.Clear();
+        mobNames.Clear();
+        var names = new List<string>();
+        foreach (var tag in all) names.Add(BaseMobTitle(tag));
+        for (int i = 0; i < all.Count; i++)
+        {
+            var name = names[i];
+            int same = 0;
+            string shortest = "";
+            for (int j = 0; j < all.Count; j++)
+            {
+                if (names[j] != name) continue;
+                same++;
+                if (!IsMobVariant(all[j]) && (shortest == "" || all[j].Length < shortest.Length)) shortest = all[j];
+            }
+            if (same > 1 && IsMobVariant(all[i])) name += " (" + Pretty(all[i].Substring(all[i].LastIndexOf(".") + 1)) + ")";
+            else if (same > 1 && all[i] != shortest)
+                name += " (" + Pretty(all[i].StartsWith(shortest) ? all[i].Substring(shortest.Length) : all[i]) + ")";
+            mobNameTags.Add(all[i]);
+            mobNames.Add(name);
+        }
+    }
+
+    // SW.Mob.Bee.Honeypot is a variant of SW.Mob.Bee.
+    static bool IsMobVariant(string tag) => tag.StartsWith("SW.Mob.") && tag.LastIndexOf(".") > 6;
 
     static string Pretty(string tag)
     {
@@ -1370,9 +1451,9 @@ public class Menu : ModMenu
         var levelRow = Ui.Row(tree);
         if (freeMode)
         {
-            Section(panel, $"NÍVEL  •  NORMAL ATÉ {adapter.NormalMaxLevel(selectedEnchant)}, LIVRE ATÉ {GameAdapter.MaxFreeLevel}", 18);
+            Section(panel, $"NÍVEL  •  NORMAL ATÉ {adapter.NormalMaxLevel(selectedEnchant)}, LIVRE ATÉ {Rules.MaxFreeLevel}", 18);
             AddV(panel, levelRow, 10);
-            value = Stepper(levelRow, "value", 1, GameAdapter.MaxFreeLevel, enchantLevel, 0, DetailInner - 2 * (StepHeight + 8), 0);
+            value = Stepper(levelRow, "value", 1, Rules.MaxFreeLevel, enchantLevel, 0, DetailInner - 2 * (StepHeight + 8), 0);
             var write = Btn("GRAVAR NO ITEM", ItemVisuals.LookPrimary, 26);
             if (write != null) { write.OnClicked += WriteEnchant; AddV(panel, Sized(write, DetailInner, 76), 20); }
             AddV(panel, Wrapped("Grava direto no item, ignorando o slot e o nível máximo; substitui o encantamento atual. Acima do máximo é experimental.", 18, Muted()), 12);
@@ -1423,14 +1504,14 @@ public class Menu : ModMenu
         AddH(chosen, chosenTexts, 16, true, false);
         AddV(chosenTexts, Txt(EffectTitle(selectedEffect).ToUpper(), ItemVisuals.PixelTitle, 26, White()), 0);
         if (preview != "") AddV(chosenTexts, Wrapped(preview, 20, Gold()), 8);
-        Section(panel, $"NÍVEL  •  NORMAL ATÉ 3, LIVRE ATÉ {GameAdapter.MaxEffectLevel}", 18);
+        Section(panel, $"NÍVEL  •  NORMAL ATÉ 3, LIVRE ATÉ {Rules.MaxEffectLevel}", 18);
         var levelRow = Ui.Row(tree);
         AddV(panel, levelRow, 10);
-        effectLevelSpin = Stepper(levelRow, "elevel", 1, GameAdapter.MaxEffectLevel, effectLevel, 0, DetailInner - 2 * (StepHeight + 8), 0);
+        effectLevelSpin = Stepper(levelRow, "elevel", 1, Rules.MaxEffectLevel, effectLevel, 0, DetailInner - 2 * (StepHeight + 8), 0);
         if (effectLevelSpin != null) effectLevelSpin.OnValueCommitted += EffectLevelTyped;
         var write = Btn(has ? "TROCAR NO ITEM" : "ADICIONAR AO ITEM", ItemVisuals.LookPrimary, 26);
         if (write != null) { write.OnClicked += AddEffect; AddV(panel, Sized(write, DetailInner, 76), 20); }
-        AddV(panel, Wrapped("Grava direto no item e o reequipa. Trocar muda a força do efeito que o item já tem. Alguns efeitos só agem no tipo de item certo (tiro múltiplo num arco, por exemplo); acima do nível 3 é experimental.", 18, Muted()), 12);
+        AddV(panel, Wrapped("Grava direto no item e o reequipa. Trocar muda a força do efeito que o item já tem. Alguns efeitos só agem no tipo de item certo (tiro múltiplo num arco, por exemplo). Acima do nível 3, a dica do jogo continua com o valor do nível 3, mas o efeito usa o nível escolhido.", 18, Muted()), 12);
     }
 
     // An effect on the item: its icon, what it does and a button that takes it off.
@@ -1581,7 +1662,7 @@ public class Menu : ModMenu
         if (end != null) end.OnClicked += EndStorm;
         var toGenerator = WorldButton(stormRow, "IR AO GERADOR", 14);
         if (toGenerator != null) toGenerator.OnClicked += GoGenerator;
-        AddV(left, Wrapped("Experimental: dura 15 min (o tempo corre com o menu aberto). O jogo cria um gerador por vez; IR AO GERADOR leva ao que estiver ativo, mas só com o herói a menos de 40 m dele (quando a barra de vida do gerador aparece). A tempestade é da área onde o herói está; o jogo pode recusar fora das áreas que têm tempestade.", 18, Muted()), 8);
+        AddV(left, Wrapped("Dura 15 min (o tempo corre com o menu aberto). O jogo cria um gerador por vez; IR AO GERADOR leva ao que estiver ativo, mas só com o herói a menos de 40 m dele (quando a barra de vida do gerador aparece). A tempestade é da área onde o herói está; o jogo pode recusar fora das áreas que têm tempestade.", 18, Muted()), 8);
 
         Section(left, "INIMIGOS POR PERTO", 30);
         radiusSpin = StepRow(left, "radius", "Raio", "Em metros, ao redor do herói. Só inimigos: pets, invocações e aldeões ficam de fora.", 5, 50, radiusInput > 0 ? radiusInput : 20, 0, 12);
@@ -1604,7 +1685,12 @@ public class Menu : ModMenu
         AddV(info, Wrapped("F7 liga e desliga a câmera lenta; F8 também volta a velocidade ao normal e libera os inimigos congelados.", 20, Light()), 10);
         var stations = adapter.UnlockedStations();
         AddV(info, Txt($"VAGONETAS LIBERADAS  •  {stations.Count}", ItemVisuals.PixelUi, 22, White()), 24);
-        foreach (var station in stations) AddV(info, Wrapped(Pretty(station.Replace("SW.MinecartStation.", "")), 18, Muted()), 6);
+        // The game's own station names (0.3.6 showed the tags: "Plains A1 · Barn"); the tag only when the game has no name.
+        foreach (var station in stations)
+        {
+            var name = GameAdapter.StationName(station);
+            AddV(info, Wrapped(name != "" ? name : Pretty(station.Replace("SW.MinecartStation.", "")), 18, Muted()), 6);
+        }
     }
 
     UButton? WorldButton(UHorizontalBox? row, string label, float left)
@@ -1703,11 +1789,12 @@ public class Menu : ModMenu
         var row = Ui.Row(tree);
         var bar = Border();
         if (button == null || row == null || bar == null) return null;
-        StyleButton(button, ItemVisuals.LookList, false, 10, 6);
+        ListStyle(button, selected, 10, 6);
         bar.SetBrush(ItemVisuals.Rounded(strip, Ui.Color(0, 0, 0, 0), 0, 1));
         AddH(row, Sized(bar, 6, EntryHeight - 26), 0, false, false);
         AddH(row, IconFrame(icon, EntryHeight - 16, selected, equipped), 10, false, false);
-        var name = Txt(title, ItemVisuals.Readable, 23, selected ? Gold() : White());
+        // Long names get smaller before they're cut (0.4.4: "Luvas do Encantador S…"; 1.0.0: "Aterrissagem Força…").
+        var name = Txt(title, ItemVisuals.Readable, title.Length > 25 ? 17 : title.Length > 18 ? 20 : 23, selected ? Gold() : White());
         name?.SetTextOverflowPolicy(ETextOverflowPolicy.Ellipsis);
         AddH(row, name, 14, true, false);
         Fill(button, row);

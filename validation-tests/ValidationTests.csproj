@@ -3,5 +3,6 @@
   <ItemGroup>
     <Compile Include="../dungeons-menu/Rules.cs" Link="Rules.cs" />
     <Compile Include="../dungeons-menu/CombatRecoveryRules.cs" Link="CombatRecoveryRules.cs" />
+    <Compile Include="../dungeons-menu/ModVersion.cs" Link="ModVersion.cs" />
   </ItemGroup>
 </Project>

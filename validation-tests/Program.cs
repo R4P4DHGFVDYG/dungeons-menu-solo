@@ -50,6 +50,37 @@ var checks = new (string Name, bool Pass)[] {
     ("Transição sem pawn mantém bloqueio", !CombatRecoveryRules.CanReleaseLock(false, true, false, false)),
     ("Transição sem ASC mantém bloqueio", !CombatRecoveryRules.CanReleaseLock(true, false, false, false)),
     ("Recarga completa libera bloqueio", CombatRecoveryRules.CanReleaseLock(true, true, false, false)),
+    ("Categoria corpo a corpo", Rules.ItemCategory("SW.ItemSlot.Equipment.MeleeWeapon") == "melee"),
+    ("Categoria à distância", Rules.ItemCategory("SW.ItemSlot.Equipment.RangedWeapon") == "ranged"),
+    ("Categoria armadura", Rules.ItemCategory("SW.ItemSlot.Equipment.Armor.Chest") == "armor"),
+    ("Categoria artefato", Rules.ItemCategory("SW.ItemSlot.Equipment.Artifact.Slot1") == "artifact"),
+    ("Categoria talismã", Rules.ItemCategory("SW.ItemSlot.Talisman") == "talisman"),
+    ("Categoria livro", Rules.ItemCategory("SW.ItemSlot.EnchantmentBook") == "book"),
+    ("Outra categoria", Rules.ItemCategory("SW.ItemSlot.Consumable") == "other"),
+    ("Baú sem saque extra não copia", Rules.ChestCopies(1) == 0),
+    ("Baú com saque ×4 copia 3", Rules.ChestCopies(4) == 3),
+    ("Baú com saque ×9 copia 8", Rules.ChestCopies(9) == 8),
+    ("Saque máximo copia 9", Rules.ChestCopies(10) == 9),
+    ("Saque inválido não copia", Rules.ChestCopies(float.NaN) == 0 && Rules.ChestCopies(11) == 0 && Rules.ChestCopies(0.5f) == 0),
+    ("Só equipamento do baú é copiado", Rules.CopiesChestDrop("SW.ItemSlot.Equipment.MeleeWeapon") && !Rules.CopiesChestDrop("SW.ItemSlot.Food")),
+    ("Efeito de 1 a 10", Rules.EffectLevel(1) && Rules.EffectLevel(10) && !Rules.EffectLevel(0) && !Rules.EffectLevel(11)),
+    ("Talismã dentro dos níveis do jogo", Rules.TalismanLevel(1, 3) && Rules.TalismanLevel(3, 3) && !Rules.TalismanLevel(4, 3) && !Rules.TalismanLevel(0, 3)),
+    ("Encantamento livre até 20", Rules.FreeEnchantLevel(1) && Rules.FreeEnchantLevel(20) && !Rules.FreeEnchantLevel(21) && !Rules.FreeEnchantLevel(0)),
+    ("Versão do menu igual à do csproj", ModVersion.Version == ProjectVersion()),
 };
 foreach (var check in checks) if (!check.Pass) throw new Exception(check.Name);
 Console.WriteLine($"{checks.Length} verificações de limites passaram.");
+
+// The <Version> of dungeons-menu/DungeonsMenu.csproj, found from the build folder up (work/, the repository or the ZIP's source/).
+static string ProjectVersion()
+{
+    for (var folder = new DirectoryInfo(AppContext.BaseDirectory); folder != null; folder = folder.Parent)
+    {
+        var path = Path.Combine(folder.FullName, "dungeons-menu", "DungeonsMenu.csproj");
+        if (!File.Exists(path)) continue;
+        var text = File.ReadAllText(path);
+        int start = text.IndexOf("<Version>") + "<Version>".Length, end = text.IndexOf("</Version>");
+        return start >= "<Version>".Length && end > start ? text.Substring(start, end - start) : "";
+    }
+    return "";
+}

@@ -4,7 +4,7 @@
 
 **Um menu de trapaças em português, com o visual do próprio jogo, para partidas solo/offline.**
 
-![Versão](https://img.shields.io/badge/versão-0.4.4-orange)
+![Versão](https://img.shields.io/badge/versão-1.0.0-green)
 ![Jogo](https://img.shields.io/badge/Minecraft%20Dungeons%20II-1.1.3.0%20(Steam)-2ea44f)
 ![Modo](https://img.shields.io/badge/modo-solo%20%2F%20offline-blue)
 ![NeoRuneExtended](https://img.shields.io/badge/NeoRuneExtended-1.0.0-8a2be2)
@@ -56,6 +56,7 @@ Adicione ou defina **esmeraldas**, **fragmentos de eco** e **pontos de encantame
 | **Vila** | Nível do **Encantador**, do **Ferreiro** e do **Mercador** até o máximo do jogo; o − / + muda o nível na hora. O Encantador libera as melhorias de encantamento que o jogo bloqueia |
 | **Renovar loja do Mercador** | Renova o estoque do Mercador pelo próprio jogo, de graça e de qualquer lugar do mapa (testado: a troca foi usada e nenhuma esmeralda foi cobrada) |
 | **Experiência e saque** | Multiplicador de experiência, multiplicador de saque, **raridade máxima**, **drop garantido** e **saque duplicado** |
+| **Baús da Tempestade de Almas** | Eles ignoram o multiplicador de saque; com **Saque ×N**, cada equipamento que sai de um baú ganha N−1 cópias no inventário |
 
 Com a raridade máxima ligada, equipamentos comuns e raros viram **Especiais** já no chão e também ao entrar no inventário. Itens únicos continuam únicos.
 
@@ -63,13 +64,15 @@ Com a raridade máxima ligada, equipamentos comuns e raros viram **Especiais** j
 
 <img src="docs/images/04-itens.png" alt="Aba Itens" width="900">
 
-Catálogo com os mais de 360 itens que o herói pode ter, separados por categoria (corpo a corpo, à distância, armaduras, artefatos, livros), com busca pelo nome em português, ícone do jogo, **raridade** (comum, rara, especial, única) e quantidade de 1 a 20.
+Catálogo com os mais de 360 itens que o herói pode ter, separados por categoria (corpo a corpo, à distância, armaduras, artefatos, talismãs, livros), com busca pelo nome em português, ícone do jogo, **raridade** (comum, rara, especial, única) e quantidade de 1 a 20.
+
+**Talismãs:** cria no nível 1 a 3 e muda o nível de um que o herói já tem; o painel mostra o efeito daquele nível.
 
 ### Mobs
 
 <img src="docs/images/05-mobs.png" alt="Aba Mobs" width="900">
 
-Cerca de 220 tipos de mob, com busca e páginas. Os mobs nascem perto do herói, montados pelo sistema de tipos do próprio jogo para virem com aparência, habilidades e IA. **Remover mobs criados** apaga só os que o menu criou.
+Cerca de 200 tipos de mob, com busca e páginas, pelos nomes do jogo. Os mobs nascem perto do herói, montados pelo sistema de tipos do próprio jogo para virem com aparência, habilidades e IA. **Remover mobs criados** apaga só os que o menu criou.
 
 ### Encantamentos
 
@@ -77,8 +80,9 @@ Cerca de 220 tipos de mob, com busca e páginas. Os mobs nascem perto do herói,
 
 - Escolha o item equipado e um dos encantamentos que o jogo aceita naquele item. Se o livro faltar, o menu cria. As melhorias respeitam os pontos e o nível do Encantador, e o rodapé diz por que o jogo recusou, quando recusa.
 - **Remover encantamento** usa o desencantar do próprio jogo.
-- **Raridade e poder** do item equipado.
-- **Modo livre** (experimental): qualquer encantamento em qualquer item, até o nível 20.
+- **Raridade e poder** do item equipado, inclusive itens comuns.
+- **Modo livre**: qualquer encantamento em qualquer item, até o nível 20 (acima do máximo normal, o efeito em combate não foi medido).
+- **Modo EFEITOS**: adiciona, troca o nível (até 10) ou remove os efeitos de armas, armaduras e **artefatos** equipados. Acima do nível 3 a dica do jogo continua mostrando o valor do nível 3, mas o efeito usa o nível escolhido.
 
 ### Combate
 
@@ -101,10 +105,10 @@ Tudo vale na hora em que você muda, sem botão de aplicar (um número digitado 
 |---|---|
 | **Hora do dia** | Amanhecer, meio-dia, anoitecer e meia-noite |
 | **Velocidade do jogo** | De 0,25× (câmera lenta) a 2×; volta ao normal em outra fase |
-| **Tempestade de Almas** | Começa ou encerra a tempestade na área do herói (experimental) |
+| **Tempestade de Almas** | Começa ou encerra a tempestade na área do herói; **IR AO GERADOR** leva ao gerador ativo quando ele está a menos de 40 m (a barra de vida dele aparece) |
 | **Inimigos por perto** | **Abater** (morrem e soltam saque) ou **congelar/liberar** num raio de 5 a 50 m. Pets, invocações e aldeões ficam de fora |
 | **Posições** | Três posições para salvar e voltar, na mesma fase |
-| **Vagonetas** | Lista das estações já liberadas |
+| **Vagonetas** | Lista das estações já liberadas, com os nomes do mapa |
 
 ## Atalhos
 
@@ -129,7 +133,7 @@ Funcionam com o menu fechado e mostram um aviso no canto da tela. As teclas pode
 > O que você altera em Recursos, Herói, Itens e Encantamentos **fica salvo no herói**, e subir o nível não pode ser desfeito. Nos testes, restaurar um backup **não** desfez alterações já salvas pelo jogo. Se não quiser arriscar, use um herói descartável.
 
 1. Instale o [**Blueprint Loader**](https://www.nexusmods.com/minecraftdungeons2/mods/2) como explica a página dele (a pasta `BlueprintLoader` vai dentro de `Dungeons\Content\Paks\~mods`). Use só esse loader: vindo da 0.3.x, que trazia o BetterBlueprintLoader, rode antes o `Remover.ps1` da pasta antiga.
-2. Baixe o ZIP da versão em **Releases** (`DungeonsMenu-0.4.4-experimental.zip`). Ele traz o mod compilado e os scripts.
+2. Baixe o ZIP da versão em **Releases** (`DungeonsMenu-1.0.0.zip`). Ele traz o mod compilado e os scripts.
 3. Extraia para uma pasta **permanente**, fora da pasta do jogo e fora de `Dungeons2\Saved`. Essa pasta guarda o registro da instalação e os seus backups.
 4. Com o jogo fechado, abra o PowerShell nessa pasta:
 
@@ -223,7 +227,7 @@ O script compila o mod e roda as verificações de regras. Os arquivos gerados f
 powershell -NoProfile -ExecutionPolicy Bypass -File .\package-scripts\Test-Package.ps1
 ```
 
-Estado atual: **49** verificações de regras e **119** verificações do instalador passando.
+Estado atual: **66** verificações de regras e **119** verificações do instalador passando.
 
 ## Diagnóstico
 
@@ -256,10 +260,10 @@ O arquivo não contém credenciais. Linhas `[diag]` mostram o que o jogo devolve
 
 ## Limitações conhecidas
 
-- **Tempestade de Almas:** o jogo aceita o pedido, mas o efeito na tela ainda não foi confirmado.
-- **Sem teste confirmado:** multiplicador de experiência, troca de raridade e de poder do item equipado e o modo livre de encantamentos (acima do máximo normal o efeito real não foi comprovado).
+- **Modo livre acima do máximo:** o item guarda o nível e a força pedidos, e eles continuam no save. O efeito em combate não foi medido, e a dica do jogo mostra o nível III.
+- **Efeitos acima do nível 3:** agem com a força escolhida (uma recarga de 4 s caiu para 3,1 s no nível 3 e para 1,7 s no nível 10), mas a dica do jogo continua mostrando o valor do nível 3.
+- **Mobs:** todos aparecem com o mesmo ícone. Um tipo (o coelho-geleia de alma) só pode ser criado depois de visto perto do herói.
 - **Raridade máxima:** o feixe de luz dos drops no chão continua com a cor sorteada pelo jogo, mesmo com o item já Especial.
-- **Mobs:** em 16 dos cerca de 220 tipos o menu não encontra a classe do mob, e a fila de criação do jogo não os criou nos testes.
 - **Versão do jogo:** o instalador e o iniciador só aceitam a versão 1.1.3.0. O menu em si não confere a versão: depois de uma atualização do jogo ele continua instalado, mas pode falhar se a atualização mudar algo que ele usa.
 
 ## Créditos e licença

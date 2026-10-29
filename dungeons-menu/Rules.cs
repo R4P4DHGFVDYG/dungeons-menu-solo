@@ -43,6 +43,35 @@ public static class Rules
     /// <summary>A village vendor level: 0 up to the game's maximum for that vendor.</summary>
     public static bool VendorLevel(int level, int maximum) => level >= 0 && maximum >= 0 && level <= maximum;
 
+    /// <summary>The highest enchantment level the free mode writes, past the game's normal maximum.</summary>
+    public const int MaxFreeLevel = 20;
+
+    /// <summary>The highest effect level the menu writes on an item (the game's own rolls go up to 3).</summary>
+    public const int MaxEffectLevel = 10;
+
+    /// <summary>A free-mode enchantment level: 1 up to <see cref="MaxFreeLevel"/>.</summary>
+    public static bool FreeEnchantLevel(int level) => level >= 1 && level <= MaxFreeLevel;
+
+    /// <summary>An effect level the menu writes: 1 up to <see cref="MaxEffectLevel"/>.</summary>
+    public static bool EffectLevel(int level) => level >= 1 && level <= MaxEffectLevel;
+
+    /// <summary>A talisman level: 1 up to the levels the game gives that talisman.</summary>
+    public static bool TalismanLevel(int level, int levels) => level >= 1 && level <= levels;
+
+    /// <summary>
+    /// How many more of each item a Soul Storm chest drops go straight to the inventory with Saque ×N: N−1 for the nearest
+    /// whole factor, none for a factor the menu doesn't accept.
+    /// </summary>
+    public static int ChestCopies(float loot) => CombatValue("loot", loot) ? (int)(loot + 0.5f) - 1 : 0;
+
+    /// <summary>Only equipment from a storm chest is copied: its food (apple, melon) isn't in the item catalog.</summary>
+    public static bool CopiesChestDrop(string slot) => slot.Contains("Equipment");
+
+    /// <summary>The Items tab's category of an item slot tag.</summary>
+    public static string ItemCategory(string slot) =>
+        slot.Contains("Melee") ? "melee" : slot.Contains("Ranged") ? "ranged" : slot.Contains("Armor") ? "armor"
+        : slot.Contains("Artifact") ? "artifact" : slot.Contains("Talisman") ? "talisman" : slot.Contains("EnchantmentBook") ? "book" : "other";
+
     public static bool CombatValue(string key, float value)
     {
         // NaN fails every comparison below.

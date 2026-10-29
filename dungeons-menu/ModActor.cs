@@ -25,6 +25,7 @@ public class ModActor : AActor, IModSettings
     string slowKey = "F7";
     string offKey = "F8";
     double nextBind;
+    int reopenTab = -1;
 
     protected override void ReceiveBeginPlay()
     {
@@ -95,6 +96,20 @@ public class ModActor : AActor, IModSettings
     public override void ReceiveTick(float deltaSeconds)
     {
         if (adapter != null) adapter.Tick();
+        // A zoom closes the menu, and it's opened again on the next tick, on the same tab (see Menu.Rezoom).
+        if (menu != null && UKismetSystemLibrary.IsValid(menu) && menu.ReopenRequested)
+        {
+            menu.ReopenRequested = false;
+            reopenTab = menu.CurrentTab;
+            menu.Close();
+        }
+        else if (reopenTab >= 0)
+        {
+            int shown = reopenTab;
+            reopenTab = -1;
+            Toggle();
+            if (menu != null && UKismetSystemLibrary.IsValid(menu) && menu.IsActivated()) menu.ShowTab(shown);
+        }
         var now = World.RealTime(this);
         if (now < nextBind) return;
         nextBind = now + 1;

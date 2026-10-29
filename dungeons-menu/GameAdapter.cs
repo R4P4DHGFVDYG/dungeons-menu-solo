@@ -14,6 +14,7 @@ using UE.SpicewoodGAS;
 using UE.SWCoreGAS;
 using UE.SWCoreCommon;
 using UE.SWCoreGameplay;
+using UE.SWUIConfig;
 using UE.WorldTimeOfDay;
 
 namespace DungeonsMenu;
@@ -30,6 +31,7 @@ public class GameAdapter : UObject, IMenuSpawnResponse
     bool loggedPotionRefill;
     List<FGameplayAttribute> savedAttributes;
     List<float> savedValues;
+    List<string> tweaksLogged;
     List<float> appliedValues;
     List<AActor> spawnedMobs;
     List<string> mobTags;
@@ -73,6 +75,7 @@ public class GameAdapter : UObject, IMenuSpawnResponse
         if (Visuals != null) Visuals.Initialize(owner);
         savedAttributes = new List<FGameplayAttribute>();
         savedValues = new List<float>();
+        tweaksLogged = new List<string>();
         appliedValues = new List<float>();
         spawnedMobs = new List<AActor>();
         knownMobActors = new List<AActor>();
@@ -109,7 +112,7 @@ public class GameAdapter : UObject, IMenuSpawnResponse
     public string Status()
     {
         if (!CanWrite(out var reason)) return reason;
-        return "Solo/offline • integração experimental • " + World.LevelName(context!)
+        return "Solo/offline"
             + (spawnStatus == "" ? "" : " • " + spawnStatus)
             + (combatStatus == "" ? "" : " • " + combatStatus);
     }
@@ -194,7 +197,7 @@ public class GameAdapter : UObject, IMenuSpawnResponse
     }
 
     static string ResourceResult(float actual, float requested) => actual == requested
-        ? $"Valor lido após alteração: {actual}. Aguarde o salvamento do jogo; persistência ainda em validação."
+        ? $"Valor lido após alteração: {actual}. O jogo grava no próximo salvamento."
         : $"O jogo retornou {actual}, diferente de {requested}; nenhuma confirmação de sucesso.";
 
     static void SetBase(UAbilitySystemComponent asc, TSubclassOf<UAttributeSet> type, string name, float value)
@@ -498,6 +501,8 @@ public class GameAdapter : UObject, IMenuSpawnResponse
             mobRegistryScanned = true;
             int total = 0, mobAssets = 0, loaded = 0;
             string sample = "";
+            var classless = new List<string>();
+            var classlessRefs = new List<string>();
             var registry = UAssetRegistryHelpers.GetAssetRegistry();
             // Type assets are named after their tag with underscores (log of 0.1.4: SW_Area_Camp_A1), not "Mob_".
             if (registry != null && registry.GetAssetsByPath("/Game/Spicewood/GameplayLogic/SWTypeSystemPrimaryDataAsset", out var assets, true, true))
@@ -517,18 +522,56 @@ public class GameAdapter : UObject, IMenuSpawnResponse
                     AddMobType(type);
                     // The type asset references the mob's Blueprint class; keep its path for a direct spawn.
                     string refs = "";
+                    string actorRef = "";
                     foreach (var reference in data.AssetReferences)
                     {
                         if (reference == null) continue;
                         var refPath = UKismetSystemLibrary.GetPathName(reference);
-                        if (loaded <= 3) refs += refPath + " ";
+                        refs += refPath + " ";
                         if (!refPath.EndsWith("_C") || mobClassTags.Contains(type)) continue;
-                        if (Unreal.LoadClass<APawn>(refPath) == null) continue;
+                        if (Unreal.LoadClass<APawn>(refPath) == null)
+                        {
+                            // Not a pawn: kept in case it's the mob's own actor (a character's Blueprint, BP_…).
+                            if (actorRef == "" && refPath.Contains("/Characters/") && refPath.Contains("/BP_")) actorRef = refPath;
+                            continue;
+                        }
                         mobClassTags.Add(type);
                         mobClassPaths.Add(refPath);
                     }
                     if (loaded <= 3) Diag($"mob type {type} refs={refs}");
+                    // A type that names no pawn class (16 of 220, 0.4.4): an actor Blueprint it names will do, else one found
+                    // by name below.
+                    if (mobClassTags.Contains(type)) continue;
+                    if (actorRef != "" && Unreal.LoadClass<AActor>(actorRef) != null)
+                    {
+                        mobClassTags.Add(type);
+                        mobClassPaths.Add(actorRef);
+                        Diag($"mob class actor {type} {actorRef}");
+                        continue;
+                    }
+                    classless.Add(type);
+                    classlessRefs.Add(refs);
                 }
+            // The Blueprint of a type that names none, by name among the characters' assets: SW.Mob.CaveSpider → BP_CaveSpider,
+            // SW.Mob.Bee.Honeypot → BP_Bee_Honeypot or BP_Honeypot.
+            if (classless.Count > 0 && registry != null && registry.GetAssetsByPath("/Game/Spicewood/Art/Characters", out var art, true, true))
+                foreach (var asset in art)
+                {
+                    var name = asset.AssetName.ToString();
+                    if (!name.StartsWith("BP_")) continue;
+                    var key = name.Substring(3).Replace("_", "").ToLower();
+                    foreach (var type in classless)
+                    {
+                        if (mobClassTags.Contains(type) || (key != MobKey(type, false) && key != MobKey(type, true))) continue;
+                        var path = asset.PackageName.ToString() + "." + name + "_C";
+                        if (Unreal.LoadClass<AActor>(path) == null) continue;
+                        mobClassTags.Add(type);
+                        mobClassPaths.Add(path);
+                        Diag($"mob class by name {type} {path}");
+                    }
+                }
+            for (int i = 0; i < classless.Count; i++)
+                if (!mobClassTags.Contains(classless[i])) Diag($"mob noclass {classless[i]} refs={classlessRefs[i]}");
             Diag($"mob registry={(registry != null)} assets={total} mob_assets={mobAssets} loaded={loaded} classes={mobClassPaths.Count}");
         }
         // Every live character carries its type in an SWTypeComponent; the soul-state tracker only knows a few mobs (it
@@ -541,6 +584,13 @@ public class GameAdapter : UObject, IMenuSpawnResponse
             var type = USWTypeComponent.GetTypeTagFromActor(actor, true).TagName.ToString();
             if (actors <= 6) actorTypes += UKismetSystemLibrary.GetDisplayName(actor) + "=" + type + " ";
             AddMobType(type);
+            // A mob seen near the hero gives its own class: one its type asset doesn't name can be created from then on.
+            if (!ListedMob(type) || mobClassTags.Contains(type)) continue;
+            var seenClass = GameUI.ClassPath(actor);
+            if (Unreal.LoadClass<AActor>(seenClass) == null) continue;
+            mobClassTags.Add(type);
+            mobClassPaths.Add(seenClass);
+            Diag($"mob class seen {type} {seenClass}");
         }
         Diag($"mob actors={actors} types={mobTags.Count} sample={actorTypes}");
         foreach (var name in mobTags) if (name.ToLower().Contains(query.ToLower())) result.Add(name);
@@ -549,7 +599,19 @@ public class GameAdapter : UObject, IMenuSpawnResponse
 
     void AddMobType(string name)
     {
-        if (name != "" && name != "None" && !mobTags.Contains(name)) mobTags.Add(name);
+        if (ListedMob(name) && !mobTags.Contains(name)) mobTags.Add(name);
+    }
+
+    // The catalog lists mobs only: not the types they build on (SW.Mob.Default.*, SW.Mob.Variant.*), props named after mobs
+    // (SW.PropActor.Mob.*) or NPCs seen near the hero. All but one of the 16 types with no class were of these (0.4.4 log).
+    static bool ListedMob(string name) => name.StartsWith("SW.Mob.") && !name.StartsWith("SW.Mob.Default") && !name.StartsWith("SW.Mob.Variant");
+
+    // A mob type as its Blueprint's name reads without "BP_" and underscores: the whole name or only its last part.
+    static string MobKey(string type, bool lastPart)
+    {
+        var name = type.StartsWith("SW.Mob.") ? type.Substring(7) : type;
+        if (lastPart && name.Contains(".")) name = name.Substring(name.LastIndexOf(".") + 1);
+        return name.Replace(".", "").Replace("_", "").ToLower();
     }
 
     public string SpawnMob(string tag, int quantity)
@@ -559,71 +621,44 @@ public class GameAdapter : UObject, IMenuSpawnResponse
         if (!MobCatalog("").Contains(tag)) return "Selecione um mob do catálogo carregado pelo jogo.";
         if (pendingMobs > 0) return "Aguarde as criações pendentes antes de repetir.";
         var player = World.Player(context!);
-        var spawner = USubsystemBlueprintLibrary.GetWorldSubsystem(context!, Unreal.ClassOf<UActorSpawnSubsystem>()) as UActorSpawnSubsystem;
-        if (player == null || spawner == null) return "Sistema de criação de entidades indisponível.";
+        if (player == null) return "Personagem indisponível.";
+        // Only a mob's own class makes it: the game's spawn queue (RequestSpawnActorBP) never made one in any test (a zombie
+        // in the camp in 0.1.7, chickens, cave spiders and evokers before the classes were read).
+        int classIndex = mobClassTags.IndexOf(tag);
+        if (classIndex < 0) return "Este mob ainda não pode ser criado: chegue perto de um e abra a aba Mobs de novo.";
+        var mobClass = Unreal.LoadClass<AActor>(mobClassPaths[classIndex]);
+        if (mobClass == null) return "A classe deste mob não carregou.";
         spawnPlayer = player;
         spawnLevel = World.LevelName(context!);
         rejectPendingMobs = false;
-        // The spawn subsystem never called this object back in 0.1.5, so new pawns are found by comparing the live ones
-        // (not only AMobCharacter: animals and summons may use other classes).
-        knownMobActors = World.FindAll(context!, Unreal.ClassOf<APawn>());
-        spawnRequestTag = tag;
-        spawnDeadline = World.RealTime(context!) + SpawnWaitSeconds;
         var origin = player.K2_GetActorLocation();
-        // 0.1.7 in game: RequestSpawnActorBP queued a zombie in the camp and nothing ever appeared. When the type asset names
-        // a Blueprint class, the actor is spawned directly (this also works while the menu pauses the game).
-        int classIndex = mobClassTags.IndexOf(tag);
-        if (classIndex >= 0)
-        {
-            var mobClass = Unreal.LoadClass<APawn>(mobClassPaths[classIndex]);
-            int created = 0;
-            for (int i = 0; mobClass != null && i < quantity; i++)
-            {
-                var spot = SpawnPoint(origin);
-                // The type system builds the mob (mesh, abilities, AI) from its SWTypeComponent tag. A plain spawn left the
-                // tag None and the zombie invisible and still (0.1.9), so the tag is set before the spawn finishes.
-                var transform = UKismetMathLibrary.MakeTransform(spot, new FRotator(), new FVector { X = 1, Y = 1, Z = 1 });
-                var actor = UGameplayStatics.BeginDeferredActorSpawnFromClass(context!, mobClass, transform,
-                    ESpawnActorCollisionHandlingMethod.AdjustIfPossibleButAlwaysSpawn, null, ESpawnActorScaleMethod.MultiplyWithRoot);
-                if (actor == null) continue;
-                var typeComponent = actor.GetComponentByClass(Unreal.ClassOf<USWTypeComponent>()) as USWTypeComponent;
-                if (typeComponent != null) typeComponent.SetTypeTag(new FGameplayTag { TagName = tag });
-                actor = UGameplayStatics.FinishSpawningActor(actor, transform, ESpawnActorScaleMethod.MultiplyWithRoot);
-                if (actor == null || !UKismetSystemLibrary.IsValid(actor)) continue;
-                if (typeComponent != null && !IsTag(USWTypeComponent.GetTypeTagFromActor(actor, true))) typeComponent.SetTypeTag(new FGameplayTag { TagName = tag });
-                Diag($"mob type component={(typeComponent != null)} tag={USWTypeComponent.GetTypeTagFromActor(actor, true).TagName} setup={(typeComponent != null && typeComponent.bHasRanSetup)}");
-                var pawn = actor as APawn;
-                if (pawn != null && pawn.GetController() == null) pawn.SpawnDefaultController();
-                spawnedMobs.Add(actor);
-                created++;
-                Diag($"mob direct spawned {UKismetSystemLibrary.GetDisplayName(actor)} at {spot.X:0},{spot.Y:0},{spot.Z:0} hero {origin.X:0},{origin.Y:0},{origin.Z:0} hidden={actor.bHidden} controller={(pawn != null && pawn.GetController() != null)}");
-            }
-            Diag($"mob direct {tag} class={mobClassPaths[classIndex]} created={created}");
-            watchUntil = World.RealTime(context!) + 10;
-            spawnStatus = $"Mobs confirmados: {spawnedMobs.Count}";
-            if (created > 0) return $"{created} mob(s) criado(s) perto do herói. Feche o menu para eles agirem.";
-        }
-        int queued = 0, offNav = 0;
+        int created = 0;
         for (int i = 0; i < quantity; i++)
         {
-            if (!UNavigationSystemV1.K2_GetRandomReachablePointInRadius(context!, origin, out var point, 600, null!, null!))
-            {
-                // No navmesh around the hero (0.1.6: "Nenhuma posição navegável"): use a ring around the hero instead.
-                double angle = UKismetMathLibrary.RandomFloatInRange(0, 360);
-                point = new FVector { X = origin.X + UKismetMathLibrary.DegCos(angle) * 300, Y = origin.Y + UKismetMathLibrary.DegSin(angle) * 300, Z = origin.Z };
-                offNav++;
-            }
-            // Navmesh points lie on the floor; a capsule placed there collides and "don't spawn if colliding" dropped most
-            // requests in 0.1.6. Lift it and let the engine adjust.
-            point.Z += SpawnLift;
-            var transform = UKismetMathLibrary.MakeTransform(point, new FRotator(), new FVector { X = 1, Y = 1, Z = 1 });
-            pendingMobs++;
-            queued++;
-            spawner.RequestSpawnActorBP(new FGameplayTag { TagName = tag }, transform, EActorSpawnPriority.EPriority_Normal,
-                player, player, ESpawnActorCollisionHandlingMethod.AdjustIfPossibleButAlwaysSpawn, this, null!);
+            var spot = SpawnPoint(origin);
+            // The type system builds the mob (mesh, abilities, AI) from its SWTypeComponent tag. A plain spawn left the
+            // tag None and the zombie invisible and still (0.1.9), so the tag is set before the spawn finishes.
+            var transform = UKismetMathLibrary.MakeTransform(spot, new FRotator(), new FVector { X = 1, Y = 1, Z = 1 });
+            var actor = UGameplayStatics.BeginDeferredActorSpawnFromClass(context!, mobClass, transform,
+                ESpawnActorCollisionHandlingMethod.AdjustIfPossibleButAlwaysSpawn, null, ESpawnActorScaleMethod.MultiplyWithRoot);
+            if (actor == null) continue;
+            var typeComponent = actor.GetComponentByClass(Unreal.ClassOf<USWTypeComponent>()) as USWTypeComponent;
+            if (typeComponent != null) typeComponent.SetTypeTag(new FGameplayTag { TagName = tag });
+            actor = UGameplayStatics.FinishSpawningActor(actor, transform, ESpawnActorScaleMethod.MultiplyWithRoot);
+            if (actor == null || !UKismetSystemLibrary.IsValid(actor)) continue;
+            if (typeComponent != null && !IsTag(USWTypeComponent.GetTypeTagFromActor(actor, true))) typeComponent.SetTypeTag(new FGameplayTag { TagName = tag });
+            Diag($"mob type component={(typeComponent != null)} tag={USWTypeComponent.GetTypeTagFromActor(actor, true).TagName} setup={(typeComponent != null && typeComponent.bHasRanSetup)}");
+            var pawn = actor as APawn;
+            if (pawn != null && pawn.GetController() == null) pawn.SpawnDefaultController();
+            spawnedMobs.Add(actor);
+            created++;
+            Diag($"mob direct spawned {UKismetSystemLibrary.GetDisplayName(actor)} at {spot.X:0},{spot.Y:0},{spot.Z:0} hero {origin.X:0},{origin.Y:0},{origin.Z:0} hidden={actor.bHidden} controller={(pawn != null && pawn.GetController() != null)}");
         }
-        Diag($"mob spawn {tag} queued={queued} offNav={offNav} pending={pendingMobs}");
-        return $"{queued} criação(ões) solicitada(s). O status confirma as respostas do jogo.";
+        Diag($"mob direct {tag} class={mobClassPaths[classIndex]} created={created}");
+        watchUntil = World.RealTime(context!) + 10;
+        spawnStatus = $"Mobs confirmados: {spawnedMobs.Count}";
+        return created > 0 ? $"{created} mob(s) criado(s) perto do herói. Feche o menu para eles agirem."
+            : "O jogo não criou o mob perto do herói.";
     }
 
     public string RemoveSpawnedMobs()
@@ -637,8 +672,9 @@ public class GameAdapter : UObject, IMenuSpawnResponse
         return $"Remoção solicitada para {count} mob(s) deste menu; respostas pendentes serão descartadas.";
     }
 
-    // The worn items the menu edits: what the game lets the hero enchant and, for effects (0.4.4), the worn artifacts too,
-    // after them so the other items keep their ids in both modes. Artifacts carry rolled effects like weapons do
+    // The worn items the menu edits: what the game lets the hero enchant, then the other worn weapons and armor (a common
+    // item has no enchantment slot, so a hero in common gear had nothing listed: 1.0.0 test), and, for effects (0.4.4),
+    // the worn artifacts last, so the others keep their ids in both modes. Artifacts carry rolled effects like weapons do
     // (SW.Item.Effect.Rerollable in the save), but the game never lets them be enchanted.
     public List<string> EquipmentCatalog(bool withArtifacts = false)
     {
@@ -657,23 +693,29 @@ public class GameAdapter : UObject, IMenuSpawnResponse
             Diag($"equip {id} slot={item.EquippedSlot.TagName} enchanted={UInventoryHelperLibrary.IsItemEnchanted(item.ItemData)}");
         }
         Diag($"equip enchantable={result.Count}");
-        if (!withArtifacts) return result;
-        int artifacts = 0;
-        foreach (var item in UInventoryHelperLibrary.GetAllEquippedItems(World.Player(context), false, true, true))
-        {
-            if (!item.EquippedSlot.TagName.ToString().Contains("Artifact")) continue;
-            bool listed = false;
-            foreach (var uid in itemUids)
-                if (uid.UID == item.ItemData.SessionUID.UID) listed = true;
-            if (listed) continue;
-            var id = (itemIds.Count + 1).ToString() + " | " + item.ItemData.TypeTag.TagName.ToString();
-            result.Add(id);
-            itemIds.Add(id);
-            itemUids.Add(item.ItemData.SessionUID);
-            artifacts++;
-            Diag($"equip {id} slot={item.EquippedSlot.TagName}");
-        }
-        Diag($"equip artifacts={artifacts}");
+        var worn = UInventoryHelperLibrary.GetAllEquippedItems(World.Player(context), false, true, true);
+        int gear = 0, artifacts = 0;
+        for (int pass = 0; pass < 2; pass++)
+            foreach (var item in worn)
+            {
+                // First pass: weapons and armor; second: artifacts, only for effects.
+                var category = Rules.ItemCategory(item.EquippedSlot.TagName.ToString());
+                bool artifact = category == "artifact";
+                if (!artifact && category != "melee" && category != "ranged" && category != "armor") continue;
+                if (artifact != (pass == 1) || (artifact && !withArtifacts)) continue;
+                bool listed = false;
+                foreach (var uid in itemUids)
+                    if (uid.UID == item.ItemData.SessionUID.UID) listed = true;
+                if (listed) continue;
+                var id = (itemIds.Count + 1).ToString() + " | " + item.ItemData.TypeTag.TagName.ToString();
+                result.Add(id);
+                itemIds.Add(id);
+                itemUids.Add(item.ItemData.SessionUID);
+                if (artifact) artifacts++;
+                else gear++;
+                Diag($"equip {id} slot={item.EquippedSlot.TagName}");
+            }
+        Diag($"equip other={gear} artifacts={artifacts}");
         return result;
     }
 
@@ -690,7 +732,6 @@ public class GameAdapter : UObject, IMenuSpawnResponse
 
     // ---------------------------------------------------------------- Free mode: any enchantment, any level, item power
 
-    public const int MaxFreeLevel = 20;
     const string EnchantmentBatch = "SW.Item.Effect.Enchantment";
 
     /// <summary>Every base enchantment in the game, whatever slot it is meant for.</summary>
@@ -749,7 +790,7 @@ public class GameAdapter : UObject, IMenuSpawnResponse
     public string WriteEnchantment(string itemId, string baseTag, int level)
     {
         if (!CanWrite(out var reason)) return reason;
-        if (level < 1 || level > MaxFreeLevel) return $"Nível livre: 1 a {MaxFreeLevel}.";
+        if (!Rules.FreeEnchantLevel(level)) return $"Nível livre: 1 a {Rules.MaxFreeLevel}.";
         if (!FindEquipment(itemId, out var item)) return "Equipamento não encontrado; selecione de novo.";
         var player = World.Player(context!);
         var world = player != null ? GameWorld(player) : null;
@@ -981,7 +1022,10 @@ public class GameAdapter : UObject, IMenuSpawnResponse
         return 0;
     }
 
-    /// <summary>What the hero's talisman of a type does at its level, in the game's words.</summary>
+    /// <summary>
+    /// What the hero's talisman of a type does at its level, in the game's words with the talisman's own strength (the
+    /// game's sentence alone said "0% de dano extra" for the Lentes de Ametista at level 3, 0.4.4).
+    /// </summary>
     public List<string> TalismanEffects(string tag)
     {
         var texts = new List<string>();
@@ -992,7 +1036,7 @@ public class GameAdapter : UObject, IMenuSpawnResponse
         {
             if (!SameTag(item.ItemData.TypeTag, tag)) continue;
             foreach (var batch in item.ItemData.Effects)
-                foreach (var effect in batch.EffectsInThisBatch) texts.Add(EffectText(player, effect));
+                foreach (var effect in batch.EffectsInThisBatch) texts.Add(EffectSentence(effect));
         }
         return texts;
     }
@@ -1017,7 +1061,7 @@ public class GameAdapter : UObject, IMenuSpawnResponse
         if (inventory == null) return "Inventário indisponível.";
         int before = TalismanLevel(tag, out var levels);
         if (before == 0) return "O herói não tem este talismã.";
-        if (level < 1 || level > levels) return $"Nível do talismã: 1 a {levels}.";
+        if (!Rules.TalismanLevel(level, levels)) return $"Nível do talismã: 1 a {levels}.";
         if (level == before) return $"O talismã já está no nível {level}.";
         var item = new FInventoryEntry();
         foreach (var entry in inventory.GetAllItems())
@@ -1092,7 +1136,6 @@ public class GameAdapter : UObject, IMenuSpawnResponse
 
     // ---------------------------------------------------------------- Item effects: the rolled and built-in effects of worn gear
 
-    public const int MaxEffectLevel = 10;
     const string RerollableBatch = "SW.Item.Effect.Rerollable";
 
     // Effects seen on two heroes' items (0.4.0 save research): effect | template family | strength at I | II | III (empty when
@@ -1286,11 +1329,19 @@ public class GameAdapter : UObject, IMenuSpawnResponse
     /// over the worn gear (0.4.1 showed 0% for effects nothing worn had), so its percentage is swapped for this strength:
     /// a share for most effects, the part above 1 for the multipliers. Effects counted in units keep the game's text.
     /// </summary>
-    public string EffectDescription(string tag, float strength)
+    public string EffectDescription(string tag, float strength) =>
+        EffectSentence(new FItemEffect { TypeTag = new FGameplayTag { TagName = tag }, Intensity = strength });
+
+    // The same for an effect an item already has. A talisman's needs its own template: the game's sentence came out empty
+    // for the bare tag and strength (1.0.0 test).
+    string EffectSentence(FItemEffect effect)
     {
         var player = context != null ? World.Player(context) : null;
         if (player == null) return "";
-        var text = EffectText(player, new FItemEffect { TypeTag = new FGameplayTag { TagName = tag }, Intensity = strength });
+        var tag = effect.TypeTag.TagName.ToString();
+        float strength = effect.Intensity;
+        var text = EffectText(player, effect);
+        if (text == "") return EffectName(tag);
         var key = tag.StartsWith("SW.Effect.") ? tag.Substring(10) : tag;
         if (key == "HealthyStrike" || key == "ExplosiveStrike") return text;
         int percent = text.IndexOf("%");
@@ -1382,7 +1433,7 @@ public class GameAdapter : UObject, IMenuSpawnResponse
     public string SetItemEffect(string itemId, string tag, int level)
     {
         if (!CanWrite(out var reason)) return reason;
-        if (level < 1 || level > MaxEffectLevel) return $"Nível do efeito: 1 a {MaxEffectLevel}.";
+        if (!Rules.EffectLevel(level)) return $"Nível do efeito: 1 a {Rules.MaxEffectLevel}.";
         if (!FindEquipment(itemId, out var item)) return "Equipamento não encontrado; selecione de novo.";
         var inventory = Inventory();
         if (inventory == null) return "Inventário indisponível.";
@@ -1396,7 +1447,9 @@ public class GameAdapter : UObject, IMenuSpawnResponse
         bool found = ItemEffectStrength(uid, tag, out var read);
         Diag($"item effect {itemId} {tag} level={level} strength={effect.Intensity} template={effect.GeneratorData.GeneratorParentTemplate.TagName} {(mode == 1 ? "added" : "replaced")} reequip={equipped} read={found}/{read}");
         if (!found || read != effect.Intensity) return "O jogo não confirmou o efeito no item; confira o inventário.";
-        string over = level > 3 ? ", acima do normal: experimental" : "";
+        // Above III the game's own tooltip keeps the template's (III) figure, but the strength is what acts: Recarga rápida on
+        // a 4 s artifact came back in 3.1 s at level 3 and 1.7 s at level 10 (1.0.0 test).
+        string over = level > 3 ? "; a dica do jogo mostra o valor do nível 3" : "";
         return $"Efeito {(mode == 1 ? "adicionado" : "trocado")} no item (nível {level}{over}). Reequipado: {(equipped ? "sim" : "não, equipe de novo pelo inventário")}.";
     }
 
@@ -1880,8 +1933,8 @@ public class GameAdapter : UObject, IMenuSpawnResponse
         combatOptions = new List<float>();
         combatOptions.AddRange(values);
         if (remember) RememberCombat();
-        combatStatus = "Atributos temporários conferidos; efeito real em combate em validação.";
-        return combatStatus + " Cooldowns já ativos podem permanecer.";
+        combatStatus = "Combate aplicado: o jogo confirmou os atributos.";
+        return combatStatus + " Recargas que já estavam correndo terminam no tempo normal.";
     }
 
     // ---------------------------------------------------------------- Hero: level and village vendors
@@ -1906,8 +1959,7 @@ public class GameAdapter : UObject, IMenuSpawnResponse
     }
 
     /// <summary>
-    /// Raises the hero to a level: first the game's own way (XP up to each level's requirement, so its level-up runs),
-    /// and if the game doesn't level up on the spot, the level itself is written (experimental).
+    /// Raises the hero to a level the game's own way: XP up to each level's requirement, so its level-up runs.
     /// </summary>
     public string SetHeroLevel(int target)
     {
@@ -1929,19 +1981,13 @@ public class GameAdapter : UObject, IMenuSpawnResponse
             level = now;
         }
         bool byXp = level > start;
-        bool direct = false;
-        if (level < target)
-        {
-            // XP alone didn't level up right away: put the XP back (a late level-up would add one more) and write the level.
-            if (!byXp) SetBase(asc, Unreal.ClassOf<UATR_XP>(), "XP", startXp);
-            SetBase(asc, Unreal.ClassOf<UATR_XP>(), "Level", target);
-            direct = true;
-            HeroLevelInfo(out level, out maximum, out xp, out next);
-        }
-        Diag($"hero level {start}->{level} target={target} max={maximum} byXp={byXp} direct={direct} xp={xp} next={next}");
-        if (level != target) return $"O jogo manteve o nível {level}; pedido {target}.";
-        return direct ? $"Nível {level} gravado direto (experimental: confira depois de salvar e recarregar)."
-            : $"O jogo subiu o herói para o nível {level} pela experiência.";
+        // The level itself is never written: the game's level-up did every raise tested (69→70, 78→100) and a level written
+        // by hand never ran in a test. When XP didn't raise it, the XP goes back (a late level-up would add one more).
+        if (!byXp) SetBase(asc, Unreal.ClassOf<UATR_XP>(), "XP", startXp);
+        Diag($"hero level {start}->{level} target={target} max={maximum} byXp={byXp} xp={xp} next={next}");
+        if (!byXp) return "O jogo não subiu o nível; nada foi gravado.";
+        if (level != target) return $"O jogo subiu o herói até o nível {level}; pedido {target}.";
+        return $"O jogo subiu o herói para o nível {level} pela experiência.";
     }
 
     static string VendorAttribute(string vendor) =>
@@ -1976,7 +2022,7 @@ public class GameAdapter : UObject, IMenuSpawnResponse
         SetBase(asc, Unreal.ClassOf<UATR_MerchantInfo>(), VendorAttribute(vendor), target);
         VendorLevelInfo(vendor, out var now, out maximum);
         Diag($"vendor {vendor} {level}->{now} target={target} max={maximum}");
-        return now == target ? $"{VendorName(vendor)} agora no nível {now} (antes {level}). Persistência ainda em validação."
+        return now == target ? $"{VendorName(vendor)} agora no nível {now} (antes {level})."
             : $"O jogo manteve o {VendorName(vendor)} no nível {now}; pedido {target}.";
     }
 
@@ -2437,6 +2483,10 @@ public class GameAdapter : UObject, IMenuSpawnResponse
         return result;
     }
 
+    /// <summary>A station's name as the game's map shows it, in the game's language; empty when the game has none.</summary>
+    public static string StationName(string tag) =>
+        UKismetTextLibrary.Conv_TextToString(USWUIConfigLibrary.GetMinecartStationName(GameUI.Tag(tag)));
+
     // ---------------------------------------------------------------- Remembered options, hotkeys and game speed
 
     void RememberCombat()
@@ -2582,7 +2632,14 @@ public class GameAdapter : UObject, IMenuSpawnResponse
         USWCoreGASUtil.SetNumericAttributeBase(combatAsc!, attribute, value);
         var actual = UAbilitySystemBlueprintLibrary.GetFloatAttributeBaseFromAbilitySystemComponent(combatAsc!, attribute, out var found);
         appliedValues.Add(found ? actual : value);
-        Diag($"tweak {name} {before}->{actual} requested={value} found={found}");
+        // Each change applies every option again, and the 300 log lines went in a few clicks (1.0.0 test): a line already
+        // logged isn't logged again.
+        var line = $"tweak {name} {before}->{actual} requested={value} found={found}";
+        if (!tweaksLogged.Contains(line))
+        {
+            tweaksLogged.Add(line);
+            Diag(line);
+        }
         return found && actual == value;
     }
 
@@ -2815,8 +2872,7 @@ public class GameAdapter : UObject, IMenuSpawnResponse
             var rarity = data.RarityTag.TagName.ToString();
             var slot = UInventoryHelperLibrary.GetItemSlotTag(player, data.TypeTag).TagName.ToString();
             if (slot.Contains("Equipment")) gear++;
-            // Only equipment is copied: the chests' food (apple, melon) isn't in the item catalog (0.4.3 test).
-            if (chestDrop && slot.Contains("Equipment"))
+            if (chestDrop && Rules.CopiesChestDrop(slot))
             {
                 copyTags.Add(data.TypeTag.TagName.ToString());
                 copyRarities.Add(rarity);
@@ -2845,7 +2901,7 @@ public class GameAdapter : UObject, IMenuSpawnResponse
     void CopyChestLoot(List<string> tags, List<string> rarities)
     {
         if (tags.Count == 0 || !On("loot")) return;
-        int copies = (int)(combatOptions[Rules.CombatKeys().IndexOf("loot")] + 0.5f) - 1;
+        int copies = Rules.ChestCopies(combatOptions[Rules.CombatKeys().IndexOf("loot")]);
         if (copies < 1) return;
         for (int i = 0; i < tags.Count; i++)
         {

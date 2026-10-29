@@ -152,6 +152,8 @@ public class ItemVisuals : UObject
         Category("ranged", "T_UI_Icon_Category_Ranged");
         Category("armor", "T_UI_Icon_Category_Chest");
         Category("artifact", "T_UI_Icon_Category_Potion");
+        Category("talisman", "T_UI_Icon_Category_Talisman");
+        Category("effects", "T_UI_Icon_Category_Effects");
         Category("book", "T_UI_Icon_Category_Enchantment");
         Category("other", "T_UI_Icon_Category_Stats");
         Category("equipped", "T_UI_Icon_Category_Equipped");
@@ -230,6 +232,31 @@ public class ItemVisuals : UObject
         {
             missingIcons.Add(tag);
             return null;
+        }
+        iconTags.Add(tag);
+        iconTextures.Add(icon);
+        return icon;
+    }
+
+    /// <summary>
+    /// An item effect's icon (SW.Effect.X), the one the game's tooltips show: /OreUI/UI/Icons/Effects/T_UI_Icon_Effect_X,
+    /// a few spelled differently; the effects category icon when the game has none. Loaded once.
+    /// </summary>
+    public UTexture2D? EffectIcon(string tag)
+    {
+        int at = iconTags.IndexOf(tag);
+        if (at >= 0) return iconTextures[at];
+        if (missingIcons.Contains(tag)) return CategoryIcon("effects");
+        var name = tag.StartsWith("SW.Effect.") ? tag.Substring(10) : tag;
+        name = name == "EagleEye" ? "Eagle_Eye" : name == "MasterMarksman" ? "Master_Marksman" : name == "MasterStrike" ? "Master_Strike"
+            : name == "Jumpshot" ? "Jumpshot_unique" : name == "EmeraldsIncrease" ? "Prospector" : name == "SoulGather" ? "SoulGatherMultiply"
+            : name == "Cooldown" ? "CoolDown" : name == "Sidestep" ? "SideStep" : name == "Supercharge" ? "SuperCharge"
+            : name == "SpeedIncrement" ? "SpeedIncriment" : name == "StatusOnHit.Strength" ? "StrengtheningStrike" : name == "SwiftSneak" ? "Shadow_Step" : name;
+        var icon = Texture($"{Icons}Effects/T_UI_Icon_Effect_{name}.T_UI_Icon_Effect_{name}");
+        if (icon == null)
+        {
+            missingIcons.Add(tag);
+            return CategoryIcon("effects");
         }
         iconTags.Add(tag);
         iconTextures.Add(icon);

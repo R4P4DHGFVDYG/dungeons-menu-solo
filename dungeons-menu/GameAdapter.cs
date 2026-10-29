@@ -57,6 +57,13 @@ public class GameAdapter : UObject, IMenuSpawnResponse
     string rememberedCombat;
     APawn? rememberPlayer;
     double reapplyAt;
+    // Item effects the menu offers (SW.Effect tags): template family, strength at levels I to III (three per effect, 0
+    // when unknown) and the unique-item template and strength.
+    List<string> effectTags;
+    List<string> effectFamilies;
+    List<float> effectTiers;
+    List<string> effectUniqueTemplates;
+    List<float> effectUniqueValues;
     public ItemVisuals? Visuals;
 
     public void Initialize(UObject owner)
@@ -75,11 +82,17 @@ public class GameAdapter : UObject, IMenuSpawnResponse
         mobTags = new List<string>();
         itemIds = new List<string>();
         itemUids = new List<FSWSessionUID>();
+        effectTags = new List<string>();
+        effectFamilies = new List<string>();
+        effectTiers = new List<float>();
+        effectUniqueTemplates = new List<string>();
+        effectUniqueValues = new List<float>();
         spawnLevel = "";
         spawnStatus = "";
         combatStatus = "";
         combatOptions = NeutralOptions();
         rememberedCombat = Settings.Get(CombatSetting, "");
+        chestsSeen = new List<AActor>();
         slowLevel = "";
         gameSpeed = 1;
         Diag($"adapter ready level={World.LevelName(owner)} remembered={rememberedCombat != ""}");
@@ -380,14 +393,20 @@ public class GameAdapter : UObject, IMenuSpawnResponse
         var inventory = Inventory();
         var player = World.Player(context!);
         if (inventory == null || player == null) return "Inventário indisponível.";
+        bool talisman = IsTalisman(tag);
+        if (talisman && TalismanLevel(tag, out var levels) > 0) return "O herói já tem este talismã: mude o nível dele no painel.";
+        if (talisman) quantity = 1;
         var itemTag = new FGameplayTag { TagName = tag };
         var category = UInventoryHelperLibrary.GetItemCategoryTag(player, itemTag);
         int limit = UInventoryHelperLibrary.GetInventoryStorageLimit(player, category);
         int occupied = 0;
         foreach (var item in inventory.GetAllItems())
             if (UInventoryHelperLibrary.GetItemCategoryTag(player, item.ItemData.TypeTag).TagName == category.TagName) occupied++;
-        if (limit <= 0) return "Não foi possível confirmar a capacidade desta categoria.";
-        if (occupied + quantity > limit) return $"Inventário sem espaço: {occupied}/{limit} nesta categoria.";
+        Diag($"item {tag} category={category.TagName} limit={limit} occupied={occupied}");
+        // A talisman's category may have no limit to confirm (0.4.0 couldn't create talismans, and this refusal was in its
+        // log); the hero keeps one of each instead.
+        if (limit <= 0 && !talisman) return "Não foi possível confirmar a capacidade desta categoria.";
+        if (limit > 0 && occupied + quantity > limit) return $"Inventário sem espaço: {occupied}/{limit} nesta categoria.";
         if (rarity == "" && tag.ToLower().Contains("unique")) rarity = UniqueRarity;
         var existing = new List<ulong>();
         foreach (var item in inventory.GetAllItems()) existing.Add(item.ItemData.SessionUID.UID);
@@ -465,7 +484,7 @@ public class GameAdapter : UObject, IMenuSpawnResponse
     {
         int count = 0;
         foreach (var item in inventory.GetAllItems())
-            if (item.ItemData.TypeTag.TagName.ToString() == tag && (!uniqueOnly || item.ItemData.RarityTag.TagName.ToString() == UniqueRarity))
+            if (SameTag(item.ItemData.TypeTag, tag) && (!uniqueOnly || item.ItemData.RarityTag.TagName.ToString() == UniqueRarity))
                 count += item.StackCount > 0 ? item.StackCount : 1;
         return count;
     }
@@ -618,7 +637,10 @@ public class GameAdapter : UObject, IMenuSpawnResponse
         return $"Remoção solicitada para {count} mob(s) deste menu; respostas pendentes serão descartadas.";
     }
 
-    public List<string> EquipmentCatalog()
+    // The worn items the menu edits: what the game lets the hero enchant and, for effects (0.4.4), the worn artifacts too,
+    // after them so the other items keep their ids in both modes. Artifacts carry rolled effects like weapons do
+    // (SW.Item.Effect.Rerollable in the save), but the game never lets them be enchanted.
+    public List<string> EquipmentCatalog(bool withArtifacts = false)
     {
         var result = new List<string>();
         itemIds.Clear();
@@ -635,6 +657,23 @@ public class GameAdapter : UObject, IMenuSpawnResponse
             Diag($"equip {id} slot={item.EquippedSlot.TagName} enchanted={UInventoryHelperLibrary.IsItemEnchanted(item.ItemData)}");
         }
         Diag($"equip enchantable={result.Count}");
+        if (!withArtifacts) return result;
+        int artifacts = 0;
+        foreach (var item in UInventoryHelperLibrary.GetAllEquippedItems(World.Player(context), false, true, true))
+        {
+            if (!item.EquippedSlot.TagName.ToString().Contains("Artifact")) continue;
+            bool listed = false;
+            foreach (var uid in itemUids)
+                if (uid.UID == item.ItemData.SessionUID.UID) listed = true;
+            if (listed) continue;
+            var id = (itemIds.Count + 1).ToString() + " | " + item.ItemData.TypeTag.TagName.ToString();
+            result.Add(id);
+            itemIds.Add(id);
+            itemUids.Add(item.ItemData.SessionUID);
+            artifacts++;
+            Diag($"equip {id} slot={item.EquippedSlot.TagName}");
+        }
+        Diag($"equip artifacts={artifacts}");
         return result;
     }
 
@@ -906,6 +945,576 @@ public class GameAdapter : UObject, IMenuSpawnResponse
             }
         }
         return false;
+    }
+
+    // A worn item is taken off and put back so the game applies its effects again; true when it isn't worn.
+    static bool Reequip(UInventoryManagerComponent inventory, FInventoryEntry item)
+    {
+        var slot = item.EquippedSlot;
+        if (!IsTag(slot)) return true;
+        inventory.UnequipItemFromSlot(slot);
+        return inventory.EquipItemBySessionUID(slot, item.ItemData.SessionUID);
+    }
+
+    // ---------------------------------------------------------------- Talismans: one of each type, levels 1 to 3
+
+    // The game spells one with a small "sw" (sw.Item.Talisman.Llama, which 0.4.1 refused to create), so tags are compared
+    // without case here.
+    public static bool IsTalisman(string tag) => tag.ToLower().StartsWith("sw.item.talisman.");
+
+    static bool SameTag(FGameplayTag tag, string name) => tag.TagName.ToString().ToLower() == name.ToLower();
+
+    const string UpgradableBatch = "SW.Item.Effect.Upgradable";
+
+    /// <summary>The level (from 1) of the hero's talisman of a type and how many levels it has; 0 when the hero has none.</summary>
+    public int TalismanLevel(string tag, out int levels)
+    {
+        levels = 0;
+        var inventory = Inventory();
+        if (inventory == null) return 0;
+        foreach (var item in inventory.GetAllItems())
+        {
+            if (!SameTag(item.ItemData.TypeTag, tag)) continue;
+            levels = item.ItemData.ItemProgression.ItemLevels.Count;
+            return item.ItemData.ItemProgression.CurrentLevel + 1;
+        }
+        return 0;
+    }
+
+    /// <summary>What the hero's talisman of a type does at its level, in the game's words.</summary>
+    public List<string> TalismanEffects(string tag)
+    {
+        var texts = new List<string>();
+        var inventory = Inventory();
+        var player = context != null ? World.Player(context) : null;
+        if (inventory == null || player == null) return texts;
+        foreach (var item in inventory.GetAllItems())
+        {
+            if (!SameTag(item.ItemData.TypeTag, tag)) continue;
+            foreach (var batch in item.ItemData.Effects)
+                foreach (var effect in batch.EffectsInThisBatch) texts.Add(EffectText(player, effect));
+        }
+        return texts;
+    }
+
+    /// <summary>Creates a talisman the hero doesn't have, then sets its level.</summary>
+    public string SpawnTalisman(string tag, int level)
+    {
+        var result = SpawnItem(tag, 1, "");
+        if (level <= 1 || TalismanLevel(tag, out var levels) == 0) return result;
+        return result + " " + SetTalismanLevel(tag, level);
+    }
+
+    /// <summary>
+    /// Sets the hero's talisman to a level the way the save keeps it (0.4.0 research: CurrentLevel counts from 0, CurrentXP
+    /// is the XP earned, and the Upgradable batch holds the level's effects and tags from ItemLevels), then re-equips it if
+    /// it is worn so the level's effects apply.
+    /// </summary>
+    public string SetTalismanLevel(string tag, int level)
+    {
+        if (!CanWrite(out var reason)) return reason;
+        var inventory = Inventory();
+        if (inventory == null) return "Inventário indisponível.";
+        int before = TalismanLevel(tag, out var levels);
+        if (before == 0) return "O herói não tem este talismã.";
+        if (level < 1 || level > levels) return $"Nível do talismã: 1 a {levels}.";
+        if (level == before) return $"O talismã já está no nível {level}.";
+        var item = new FInventoryEntry();
+        foreach (var entry in inventory.GetAllItems())
+            if (SameTag(entry.ItemData.TypeTag, tag)) item = entry;
+        float xp = TalismanStartXP(item.ItemData, level - 1);
+        bool written = WriteTalismanLevel(inventory, item.ItemData.SessionUID.UID, level - 1, xp);
+        bool equipped = Reequip(inventory, item);
+        int after = TalismanLevel(tag, out levels);
+        Diag($"talisman {tag} level {before}->{after} target={level} xp {item.ItemData.ItemProgression.CurrentXP}->{xp} written={written} worn={IsTag(item.EquippedSlot)} reequip={equipped}");
+        return after == level ? $"Talismã agora no nível {after} (antes {before})." : $"O jogo manteve o talismã no nível {after}; pedido {level}.";
+    }
+
+    // The XP a talisman holds on reaching a level (index 0 is level 1): what the game asks to leave the level before. Read
+    // as a running total, which is right for level 2; were it per level, level 3 would only show less progress, and it is
+    // the last level anyway. 0 when the game gives no figure: too little XP never makes the game level a talisman down.
+    float TalismanStartXP(FItemData data, int index)
+    {
+        if (index <= 0 || context == null) return 0;
+        var copy = data;
+        var progression = copy.ItemProgression;
+        progression.CurrentLevel = index - 1;
+        progression.CurrentXP = 0;
+        copy.ItemProgression = progression;
+        bool known = UInventoryHelperLibrary.GetNextLevelXPRequirement(context, copy, out var need);
+        Diag($"talisman xp to leave level {index} known={known} need={need}");
+        return known && need > 0 ? need : 0;
+    }
+
+    static bool WriteTalismanLevel(UInventoryManagerComponent inventory, ulong uid, int index, float xp)
+    {
+        var container = inventory.ReplicatedItems;
+        var slots = container.Items;
+        for (int s = 0; s < slots.Count; s++)
+        {
+            var slot = slots[s];
+            var entries = slot.ItemInventoryEntries;
+            for (int e = 0; e < entries.Count; e++)
+            {
+                var entry = entries[e];
+                if (entry.ItemData.SessionUID.UID != uid) continue;
+                var data = entry.ItemData;
+                var progression = data.ItemProgression;
+                var levels = progression.ItemLevels;
+                if (index < 0 || index >= levels.Count) return false;
+                progression.CurrentLevel = index;
+                progression.CurrentXP = xp;
+                data.ItemProgression = progression;
+                var batches = data.Effects;
+                var batch = new FItemEffectBatch
+                {
+                    TypeTag = new FGameplayTag { TagName = UpgradableBatch },
+                    EffectsInThisBatch = levels[index].LevelEffects,
+                    GrantedTagsInThisBatch = levels[index].LevelTags,
+                };
+                int at = -1;
+                for (int b = 0; b < batches.Count; b++)
+                    if (batches[b].TypeTag.TagName.ToString() == UpgradableBatch) at = b;
+                if (at >= 0) batches[at] = batch;
+                else batches.Add(batch);
+                data.Effects = batches;
+                entry.ItemData = data;
+                entries[e] = entry;
+                slot.ItemInventoryEntries = entries;
+                slots[s] = slot;
+                container.Items = slots;
+                inventory.ReplicatedItems = container;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // ---------------------------------------------------------------- Item effects: the rolled and built-in effects of worn gear
+
+    public const int MaxEffectLevel = 10;
+    const string RerollableBatch = "SW.Item.Effect.Rerollable";
+
+    // Effects seen on two heroes' items (0.4.0 save research): effect | template family | strength at I | II | III (empty when
+    // not seen) | unique-item template | its strength. Effects on the hero's own items that aren't here are added at run time.
+    static List<string> KnownEffects() => new List<string>
+    {
+        "AmmoCapacity|AmmoCapacity|1.2|1.4|1.6|SW.EffectTemplate.AmmoCapacity.Unique|1.45",
+        "ArrowBurst|ArrowBurst|0.2||0.3||",
+        "ArtifactHealing|||||SW.EffectTemplate.ArtifactHealing.Unique|0.06",
+        "BeastBoss|BeastBoss|0.2||||",
+        "Committed|Committed||0.25|0.3||",
+        "Constitution|Constitution|0.1|0.2|0.3||",
+        "Cooldown|Cooldown|-0.1|-0.15|-0.2||",
+        "CriticalEdge|CriticalEdge|0.1|0.2|0.3||",
+        "CriticalHit|CriticalHit|0.05|0.1|0.15||",
+        "Deflect|Deflect|0.1|0.15|0.2|SW.EffectTemplate.Deflect.Unique|0.25",
+        "DropChance|DropChance|0.01|0.02|0.04||",
+        "Duelist|||||SW.EffectTemplate.Duelist.Unique|0.4",
+        "EagleEye|EagleEye|0.1|0.15|||",
+        "ElementalProtection|ElementalProtection|-0.1|-0.15|-0.2||",
+        "EmeraldsIncrease|Prospector|0.05||||",
+        "Expand|Expand|0.2||0.4|SW.EffectTemplate.Expand.Unique|0.55",
+        "ExperienceIncrease|ExperienceIncrease|1.04|1.06|1.1||",
+        "ExplosiveStrike|||||SW.EffectTemplate.ExplosiveStrike.Unique|1",
+        "FireFocus|FireFocus|0.1|0.15||SW.EffectTemplate.FireFocus.Unique|0.2",
+        "FriendsForever|FriendsForever||-0.1|-0.15||",
+        "Friendship|Friendship|-0.05|-0.1||SW.EffectTemplate.Friendship.Unique|-0.2",
+        "FrostFocus|FrostFocus||0.15|0.2||",
+        "Gambler|Gambler|0.1|0.15|0.2||",
+        "Hairtrigger|||||SW.EffectTemplate.Hairtrigger.Unique|0.4",
+        "HealingFocus|HealingFocus|0.25|0.35|0.5|SW.EffectTemplate.HealingFocus.Unique|0.5",
+        "HealthBoost|HealthBoost|1.2|1.25|1.35|SW.EffectTemplate.HealthBoost.Unique|1.3",
+        "HealthyStrike|HealthyStrike|1|2|3||",
+        "Jumpshot|||||SW.EffectTemplate.Jumpshot.Unique|0.06",
+        "Knockback|Knockback|0.15|0.2||SW.EffectTemplate.Knockback.Unique|0.4",
+        "LightningFocus|LightningFocus|0.1|0.15|0.2|SW.EffectTemplate.LightningFocus.Unique|0.25",
+        "Looting|Looting||0.4|0.6|SW.EffectTemplate.Looting.Unique|0.8",
+        "Lucky|Lucky|0.1|0.15|0.2||",
+        "MasterMarksman|MasterMarksman||0.2|0.25||",
+        "MasterStrike|MasterStrike||0.2|||",
+        "MultiShot|MultiShot|0.2|0.3|0.4|SW.EffectTemplate.MultiShot.Unique|0.6",
+        "Opportunist|Opportunist|||0.5||",
+        "Opulence|Opulence|||0.03|SW.EffectTemplate.Opulence.Unique|0.05",
+        "PoisonFocus|PoisonFocus||0.15|0.2|SW.EffectTemplate.PoisonFocus.Unique|0.2",
+        "PotionCooldown|PotionMaster||-0.1|-0.2||",
+        "Power|Power||0.2|0.3|SW.EffectTemplate.Power.Unique|0.3",
+        "Precision|Precision|||0.2||",
+        "ProjectileProtection|ProjectileProtection|-0.1|-0.15|-0.2||",
+        "Protection|Protection|-0.1|-0.15|-0.2|SW.Effecttemplate.Protection.Unique|-0.25",
+        "RapidStrike|RapidStrike||0.15|0.2|SW.EffectTemplate.RapidStrike.Unique|0.3",
+        "Reconstruction|Reconstruction|-0.15|-0.2||SW.EffectTemplate.Reconstruction.Unique|-0.35",
+        "Reeling|Reeling|||0.4|SW.EffectTemplate.Reeling.Unique|0.6",
+        "Regeneration|Regeneration|||0.1||",
+        "Resilience|Resilience|-0.2|-0.25|-0.3||",
+        "RollCooldown|Acrobat|0.1|0.15|0.25||",
+        "Saboteur|Saboteur|0.4|0.6|0.8||",
+        "ShadowWalk|ShadowWalk|0.2||0.35||",
+        "Sharpness|Sharpness||0.2|0.3||",
+        "Sidestep|Sidestep|0.1|0.15||SW.EffectTemplate.Sidestep.Unique|0.2",
+        "Sniper|Sniper|0.25|0.5|0.75||",
+        "SoulFocus|SoulFocus|0.1|0.15|||",
+        "SoulGather|SoulGather|0.4|0.8|1.4||",
+        "SoulMax|BagOfSouls|1.25|1.3|1.35||",
+        "SpeedBoost|SpeedBoost|0.05||0.15||",
+        "StatusBuff|StatusBuff|1.1|1.15|1.25||",
+        "Supercharge|Supercharge|0.3|0.35|0.4||",
+        "SweepingEdge|SweepingEdge|||0.4|SW.EffectTemplate.SweepingEdge.Unique|0.5",
+        "SwiftSneak|SwiftSneak|0.15||0.3||",
+        "Thorns|Thorns|0.5|0.65|0.8|SW.EffectTemplate.Thorns.Unique|1",
+        "Vanguard|Vanguard||0.35|0.5||",
+        "Vestige|Vestige|0.1|0.15|0.2||",
+        "Vivify|Vivify|0.15||0.5|SW.EffectTemplate.Vivify.Unique|0.7",
+    };
+
+    void LoadEffects()
+    {
+        if (effectTags.Count > 0) return;
+        foreach (var line in KnownEffects())
+        {
+            var fields = Fields(line);
+            if (fields.Count < 7) continue;
+            effectTags.Add("SW.Effect." + fields[0]);
+            effectFamilies.Add(fields[1] == "" ? "" : "SW.EffectTemplate." + fields[1]);
+            for (int i = 2; i <= 4; i++) effectTiers.Add(fields[i] == "" ? 0 : (float)UKismetStringLibrary.Conv_StringToDouble(fields[i]));
+            effectUniqueTemplates.Add(fields[5]);
+            effectUniqueValues.Add(fields[6] == "" ? 0 : (float)UKismetStringLibrary.Conv_StringToDouble(fields[6]));
+        }
+        var inventory = Inventory();
+        if (inventory == null) return;
+        foreach (var item in inventory.GetAllItems())
+            foreach (var batch in item.ItemData.Effects)
+                foreach (var effect in batch.EffectsInThisBatch)
+                {
+                    var tag = effect.TypeTag.TagName.ToString();
+                    if (!tag.StartsWith("SW.Effect.") || effectTags.Contains(tag)) continue;
+                    effectTags.Add(tag);
+                    effectFamilies.Add("");
+                    effectTiers.Add(0);
+                    effectTiers.Add(0);
+                    effectTiers.Add(0);
+                    effectUniqueTemplates.Add(effect.GeneratorData.GeneratorParentTemplate.TagName.ToString());
+                    effectUniqueValues.Add(effect.Intensity);
+                }
+        Diag($"effects catalog={effectTags.Count}");
+    }
+
+    static List<string> Fields(string line)
+    {
+        var fields = new List<string>();
+        var rest = line;
+        int at = rest.IndexOf("|");
+        while (at >= 0)
+        {
+            fields.Add(rest.Substring(0, at));
+            rest = rest.Substring(at + 1);
+            at = rest.IndexOf("|");
+        }
+        fields.Add(rest);
+        return fields;
+    }
+
+    /// <summary>Every effect the menu can put on an item.</summary>
+    public List<string> EffectCatalog()
+    {
+        LoadEffects();
+        var result = new List<string>();
+        result.AddRange(effectTags);
+        return result;
+    }
+
+    /// <summary>
+    /// An effect's strength at a level: the game's own figure for I to III when known, otherwise on the line through the two
+    /// highest known levels (above III it keeps growing by that step, as free enchantments do). An effect only seen on
+    /// unique items takes that strength as its level III.
+    /// </summary>
+    public float EffectStrength(string tag, int level)
+    {
+        LoadEffects();
+        int at = effectTags.IndexOf(tag);
+        if (at < 0) return 0;
+        if (level >= 1 && level <= 3 && effectTiers[at * 3 + level - 1] != 0) return effectTiers[at * 3 + level - 1];
+        int high = 0;
+        int low = 0;
+        for (int tier = 3; tier >= 1; tier--)
+        {
+            if (effectTiers[at * 3 + tier - 1] == 0) continue;
+            if (high == 0) high = tier;
+            else if (low == 0) low = tier;
+        }
+        if (high == 0) return effectUniqueValues[at] * level / 3;
+        float top = effectTiers[at * 3 + high - 1];
+        if (low == 0) return top * level / high;
+        float step = (top - effectTiers[at * 3 + low - 1]) / (high - low);
+        return top + (level - high) * step;
+    }
+
+    // The template the effect is filed under at a level: the known level nearest to it (the game's templates for unseen
+    // levels aren't known), or the unique one.
+    string EffectTemplate(string tag, int level)
+    {
+        int at = effectTags.IndexOf(tag);
+        if (at < 0) return "";
+        int best = 0;
+        for (int tier = 1; tier <= 3; tier++)
+        {
+            if (effectTiers[at * 3 + tier - 1] == 0) continue;
+            int distance = tier > level ? tier - level : level - tier;
+            int bestDistance = best > level ? best - level : level - best;
+            if (best == 0 || distance <= bestDistance) best = tier;
+        }
+        if (best == 0 || effectFamilies[at] == "") return effectUniqueTemplates[at];
+        return effectFamilies[at] + (best == 1 ? ".I" : best == 2 ? ".II" : ".III");
+    }
+
+    static string EffectText(APawn player, FItemEffect effect)
+        => UKismetTextLibrary.Conv_TextToString(UInventoryHelperLibrary.GetTotalEffectDescription(player, effect));
+
+    FItemEffect MakeEffect(string tag, int level) => new FItemEffect
+    {
+        TypeTag = new FGameplayTag { TagName = tag },
+        Intensity = EffectStrength(tag, level),
+        EnchantmentPointsInvested = 0,
+        GeneratorData = new FEffectGeneratorData { GeneratorParentTemplate = new FGameplayTag { TagName = EffectTemplate(tag, level) } },
+    };
+
+    /// <summary>What an effect does at a level, in the game's words ("" outside a match).</summary>
+    public string EffectPreview(string tag, int level) => EffectDescription(tag, EffectStrength(tag, level));
+
+    /// <summary>
+    /// What an effect does at a strength, in the game's words. The game's sentence shows the hero's total of that effect
+    /// over the worn gear (0.4.1 showed 0% for effects nothing worn had), so its percentage is swapped for this strength:
+    /// a share for most effects, the part above 1 for the multipliers. Effects counted in units keep the game's text.
+    /// </summary>
+    public string EffectDescription(string tag, float strength)
+    {
+        var player = context != null ? World.Player(context) : null;
+        if (player == null) return "";
+        var text = EffectText(player, new FItemEffect { TypeTag = new FGameplayTag { TagName = tag }, Intensity = strength });
+        var key = tag.StartsWith("SW.Effect.") ? tag.Substring(10) : tag;
+        if (key == "HealthyStrike" || key == "ExplosiveStrike") return text;
+        int percent = text.IndexOf("%");
+        if (percent <= 0) return text;
+        int start = percent;
+        while (start > 0 && "0123456789.,-+".Contains(text.Substring(start - 1, 1))) start--;
+        if (start == percent) return text;
+        bool fromOne = key == "AmmoCapacity" || key == "ExperienceIncrease" || key == "HealthBoost" || key == "SoulMax" || key == "StatusBuff";
+        float share = (fromOne ? strength - 1 : strength) * 100;
+        if (share < 0) share = -share;
+        int tenths = (int)(share * 10 + 0.5f);
+        var number = tenths % 10 == 0 ? $"{tenths / 10}" : $"{tenths / 10},{tenths % 10}";
+        return text.Substring(0, start) + number + text.Substring(percent);
+    }
+
+    /// <summary>An effect's short name in Portuguese ("" when the menu has none); the game names effects only internally.</summary>
+    public static string EffectName(string tag)
+    {
+        var key = tag.StartsWith("SW.Effect.") ? tag.Substring(10) : tag;
+        foreach (var line in EffectNames())
+        {
+            int at = line.IndexOf("=");
+            if (line.Substring(0, at) == key) return line.Substring(at + 1);
+        }
+        return "";
+    }
+
+    static List<string> EffectNames() => new List<string>
+    {
+        "AmmoCapacity=Aljava ampla", "ArrowBurst=Rajada de flechas", "ArtifactHealing=Cura por artefato", "BeastBoss=Chefe das feras",
+        "Committed=Comprometido", "Constitution=Constituição", "Cooldown=Recarga rápida", "CriticalEdge=Fio crítico",
+        "CriticalHit=Acerto crítico", "Deflect=Desvio", "DropChance=Chance de espólio", "Duelist=Duelista", "EagleEye=Olho de águia",
+        "ElementalProtection=Proteção elemental", "EmeraldsIncrease=Garimpeiro", "Expand=Expansão", "ExperienceIncrease=Mais experiência",
+        "ExplosiveStrike=Golpe explosivo", "FireFocus=Foco em fogo", "FriendsForever=Amigos para sempre", "Friendship=Amizade",
+        "FrostFocus=Foco em gelo", "Gambler=Apostador", "Hairtrigger=Gatilho sensível", "HealingFocus=Foco em cura",
+        "HealthBoost=Vida extra", "HealthyStrike=Golpe saudável", "Jumpshot=Tiro no salto", "Knockback=Repulsão",
+        "LightningFocus=Foco em raio", "Looting=Saque", "Lucky=Sorte", "MasterMarksman=Mestre atirador", "MasterStrike=Golpe de mestre",
+        "MultiShot=Tiro múltiplo", "Opportunist=Oportunista", "Opulence=Opulência", "PoisonFocus=Foco em veneno",
+        "PotionCooldown=Mestre das poções", "Power=Poder", "Precision=Precisão", "ProjectileProtection=Proteção contra projéteis",
+        "Protection=Proteção", "RapidStrike=Golpe rápido", "Reconstruction=Reconstrução", "Reeling=Cambalear", "Regeneration=Regeneração",
+        "Resilience=Resiliência", "RollCooldown=Acrobata", "Saboteur=Sabotador", "ShadowWalk=Passo sombrio", "Sharpness=Afiação",
+        "Sidestep=Esquiva", "Sniper=Atirador de elite", "SoulFocus=Foco em almas", "SoulGather=Coleta de almas", "SoulMax=Bolsa de almas",
+        "SpeedBoost=Velocidade", "StatusBuff=Reforço de efeitos", "Supercharge=Supercarga", "SweepingEdge=Lâmina varredora",
+        "SwiftSneak=Furtividade rápida", "Thorns=Espinhos", "Vanguard=Vanguarda", "Vestige=Vestígio", "Vivify=Vivificar",
+        "Finesse=Finesse", "FiringEmerald=Esmeralda disparada", "Plummeting=Queda livre", "SpeedIncrement=Embalo",
+        "StatusOnHit.Strength=Golpe fortalecedor",
+    };
+
+    /// <summary>A worn item's effects (all but its enchantment), with the game's description of each.</summary>
+    public void ItemEffects(string itemId, List<string> tags, List<string> texts)
+    {
+        tags.Clear();
+        texts.Clear();
+        if (!FindEquipment(itemId, out var item)) return;
+        var player = World.Player(context!);
+        foreach (var batch in item.ItemData.Effects)
+        {
+            if (batch.TypeTag.TagName.ToString() == EnchantmentBatch) continue;
+            foreach (var effect in batch.EffectsInThisBatch)
+            {
+                tags.Add(effect.TypeTag.TagName.ToString());
+                texts.Add(player != null ? EffectDescription(effect.TypeTag.TagName.ToString(), effect.Intensity) : "");
+            }
+        }
+    }
+
+    // The strength of an item's effect of a type, read back by its id; false when the item doesn't have it.
+    bool ItemEffectStrength(FSWSessionUID uid, string tag, out float strength)
+    {
+        strength = 0;
+        if (context == null || !UInventoryHelperLibrary.GetInventoryEntryFromID(World.Player(context), uid, out var item)) return false;
+        foreach (var batch in item.ItemData.Effects)
+        {
+            if (batch.TypeTag.TagName.ToString() == EnchantmentBatch) continue;
+            foreach (var effect in batch.EffectsInThisBatch)
+                if (effect.TypeTag.TagName.ToString() == tag)
+                {
+                    strength = effect.Intensity;
+                    return true;
+                }
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Puts an effect on a worn item at a level: it replaces the strength of the item's own effect of that type, or joins
+    /// the item's rerollable effects (the Blacksmith's reforge may change it later). The item is re-equipped so it applies.
+    /// </summary>
+    public string SetItemEffect(string itemId, string tag, int level)
+    {
+        if (!CanWrite(out var reason)) return reason;
+        if (level < 1 || level > MaxEffectLevel) return $"Nível do efeito: 1 a {MaxEffectLevel}.";
+        if (!FindEquipment(itemId, out var item)) return "Equipamento não encontrado; selecione de novo.";
+        var inventory = Inventory();
+        if (inventory == null) return "Inventário indisponível.";
+        LoadEffects();
+        if (!effectTags.Contains(tag)) return "Efeito desconhecido.";
+        var effect = MakeEffect(tag, level);
+        var uid = item.ItemData.SessionUID;
+        int mode = WriteItemEffect(inventory, uid.UID, effect);
+        if (mode == 0) return "O item não foi encontrado no inventário do jogo.";
+        bool equipped = Reequip(inventory, item);
+        bool found = ItemEffectStrength(uid, tag, out var read);
+        Diag($"item effect {itemId} {tag} level={level} strength={effect.Intensity} template={effect.GeneratorData.GeneratorParentTemplate.TagName} {(mode == 1 ? "added" : "replaced")} reequip={equipped} read={found}/{read}");
+        if (!found || read != effect.Intensity) return "O jogo não confirmou o efeito no item; confira o inventário.";
+        string over = level > 3 ? ", acima do normal: experimental" : "";
+        return $"Efeito {(mode == 1 ? "adicionado" : "trocado")} no item (nível {level}{over}). Reequipado: {(equipped ? "sim" : "não, equipe de novo pelo inventário")}.";
+    }
+
+    // Replaces the item's effect of the same type, or adds it to the rerollable batch (made when missing): 2 replaced, 1
+    // added, 0 item not found.
+    static int WriteItemEffect(UInventoryManagerComponent inventory, ulong uid, FItemEffect effect)
+    {
+        var tag = effect.TypeTag.TagName.ToString();
+        var container = inventory.ReplicatedItems;
+        var slots = container.Items;
+        for (int s = 0; s < slots.Count; s++)
+        {
+            var slot = slots[s];
+            var entries = slot.ItemInventoryEntries;
+            for (int e = 0; e < entries.Count; e++)
+            {
+                var entry = entries[e];
+                if (entry.ItemData.SessionUID.UID != uid) continue;
+                var data = entry.ItemData;
+                var batches = data.Effects;
+                int mode = 0;
+                for (int b = 0; b < batches.Count; b++)
+                {
+                    if (batches[b].TypeTag.TagName.ToString() == EnchantmentBatch) continue;
+                    var batch = batches[b];
+                    var effects = batch.EffectsInThisBatch;
+                    bool changed = false;
+                    for (int f = 0; f < effects.Count; f++)
+                        if (effects[f].TypeTag.TagName.ToString() == tag) { effects[f] = effect; changed = true; }
+                    if (!changed) continue;
+                    batch.EffectsInThisBatch = effects;
+                    batches[b] = batch;
+                    mode = 2;
+                }
+                if (mode == 0)
+                {
+                    mode = 1;
+                    int at = -1;
+                    for (int b = 0; b < batches.Count; b++)
+                        if (batches[b].TypeTag.TagName.ToString() == RerollableBatch) at = b;
+                    if (at < 0)
+                    {
+                        batches.Add(new FItemEffectBatch { TypeTag = new FGameplayTag { TagName = RerollableBatch }, EffectsInThisBatch = new List<FItemEffect>() });
+                        at = batches.Count - 1;
+                    }
+                    var rerollable = batches[at];
+                    var list = rerollable.EffectsInThisBatch;
+                    list.Add(effect);
+                    rerollable.EffectsInThisBatch = list;
+                    batches[at] = rerollable;
+                }
+                data.Effects = batches;
+                entry.ItemData = data;
+                entries[e] = entry;
+                slot.ItemInventoryEntries = entries;
+                slots[s] = slot;
+                container.Items = slots;
+                inventory.ReplicatedItems = container;
+                return mode;
+            }
+        }
+        return 0;
+    }
+
+    /// <summary>Takes every effect of a type off a worn item (its enchantment stays) and re-equips it.</summary>
+    public string RemoveItemEffect(string itemId, string tag)
+    {
+        if (!CanWrite(out var reason)) return reason;
+        if (!FindEquipment(itemId, out var item)) return "Equipamento não encontrado; selecione de novo.";
+        var inventory = Inventory();
+        if (inventory == null) return "Inventário indisponível.";
+        var uid = item.ItemData.SessionUID;
+        int removed = ClearItemEffect(inventory, uid.UID, tag);
+        if (removed == 0) return "O item não tem este efeito.";
+        bool equipped = Reequip(inventory, item);
+        bool still = ItemEffectStrength(uid, tag, out var read);
+        Diag($"item effect {itemId} {tag} removed={removed} reequip={equipped} still={still}");
+        if (still) return "O jogo manteve o efeito no item.";
+        return $"Efeito removido do item. Reequipado: {(equipped ? "sim" : "não, equipe de novo pelo inventário")}.";
+    }
+
+    static int ClearItemEffect(UInventoryManagerComponent inventory, ulong uid, string tag)
+    {
+        var container = inventory.ReplicatedItems;
+        var slots = container.Items;
+        for (int s = 0; s < slots.Count; s++)
+        {
+            var slot = slots[s];
+            var entries = slot.ItemInventoryEntries;
+            for (int e = 0; e < entries.Count; e++)
+            {
+                var entry = entries[e];
+                if (entry.ItemData.SessionUID.UID != uid) continue;
+                var data = entry.ItemData;
+                var batches = data.Effects;
+                int removed = 0;
+                for (int b = 0; b < batches.Count; b++)
+                {
+                    if (batches[b].TypeTag.TagName.ToString() == EnchantmentBatch) continue;
+                    var batch = batches[b];
+                    var effects = batch.EffectsInThisBatch;
+                    for (int f = effects.Count - 1; f >= 0; f--)
+                        if (effects[f].TypeTag.TagName.ToString() == tag) { effects.RemoveAt(f); removed++; }
+                    batch.EffectsInThisBatch = effects;
+                    batches[b] = batch;
+                }
+                if (removed == 0) return 0;
+                data.Effects = batches;
+                entry.ItemData = data;
+                entries[e] = entry;
+                slot.ItemInventoryEntries = entries;
+                slots[s] = slot;
+                container.Items = slots;
+                inventory.ReplicatedItems = container;
+                return removed;
+            }
+        }
+        return 0;
     }
 
     /// <summary>The item tag inside an equipment id ("1 | SW.Item.Sword" -> "SW.Item.Sword").</summary>
@@ -1251,6 +1860,11 @@ public class GameAdapter : UObject, IMenuSpawnResponse
             if (set is UATR_Loot lootSet)
             {
                 if (loot != 1 && !Change(Unreal.ClassOf<UATR_Loot>(), "LootingMultiplier", lootSet.LootingMultiplier.BaseValue, Scaled(lootSet.LootingMultiplier.BaseValue, loot))) confirmed = false;
+                // The extra payouts the multiplier gives are capped by MaximumLootingPayouts, left alone until 0.4.2: "caem
+                // poucos itens" with the multiplier at ×10. The cap is raised to the factor.
+                float payouts = lootSet.MaximumLootingPayouts.BaseValue;
+                if (loot > 1 && payouts < UKismetMathLibrary.FCeil(loot)
+                    && !Change(Unreal.ClassOf<UATR_Loot>(), "MaximumLootingPayouts", payouts, UKismetMathLibrary.FCeil(loot))) confirmed = false;
                 // Chances are set far above 1, as with the critical hit: certain whether the game reads fractions or percentages.
                 if (rarity != 0 && !Change(Unreal.ClassOf<UATR_Loot>(), "RarityBonusChance", lootSet.RarityBonusChance.BaseValue, 100)) confirmed = false;
                 if (drops != 0 && !Change(Unreal.ClassOf<UATR_Loot>(), "DropChanceIncrease", lootSet.DropChanceIncrease.BaseValue, 100)) confirmed = false;
@@ -1503,11 +2117,14 @@ public class GameAdapter : UObject, IMenuSpawnResponse
         var area = CurrentArea();
         if (IsTag(area)) storms.StartSoulStormAndTimer(area, SoulStormSeconds);
         else storms.StartSoulStorm();
-        Diag($"soul storm start area={area.TagName}");
-        return "Tempestade de Almas pedida" + (IsTag(area) ? $" na área {area.TagName}" : "") + ". Experimental: o jogo pode recusar fora das áreas que têm tempestade.";
+        Diag($"soul storm start area={area.TagName} seconds={SoulStormSeconds} game={StormDuration(area)}");
+        BeginStormWatch(area);
+        return "Tempestade de Almas pedida" + (IsTag(area) ? $" na área {area.TagName}" : "")
+            + $" por {Short(SoulStormSeconds / 60)} min. Experimental: o jogo pode recusar fora das áreas que têm tempestade.";
     }
 
-    const float SoulStormSeconds = 300;
+    // 0.4.1 in game: 300 s read as about 4 minutes (the storm's clock is real time and runs while the menu pauses the game).
+    const float SoulStormSeconds = 900;
 
     public string EndSoulStorm()
     {
@@ -1516,8 +2133,191 @@ public class GameAdapter : UObject, IMenuSpawnResponse
         var area = CurrentArea();
         if (storms == null || !IsTag(area)) return "Área atual desconhecida; não há tempestade para encerrar.";
         storms.EndSoulStorm(area);
+        stormWatchUntil = 0;
         Diag($"soul storm end area={area.TagName}");
         return $"Fim da Tempestade de Almas pedido na área {area.TagName}.";
+    }
+
+    // The duration the game recorded for the area's storm, in seconds (-1 when it has none).
+    float StormDuration(FGameplayTag area)
+    {
+        foreach (var actor in World.FindAll(context!, Unreal.ClassOf<ASWWorldActor>()))
+            foreach (var data in (actor as ASWWorldActor)!.GetReplicatedSoulStormData())
+                if (data.AffectedArea.TagName.ToString() == area.TagName.ToString()) return data.Duration;
+        return -1;
+    }
+
+    // The storm the menu started: its area and how long the menu follows it (to note when it ends). Moving each new generator
+    // near the hero (0.4.2) was taken out at the user's request: in game it "bugged" (one went from 6 to 23 m away, another
+    // was lifted 5 m); IR AO GERADOR stays.
+    FGameplayTag stormArea;
+    double stormStarted;
+    double stormWatchUntil;
+    double nextStormScan;
+    bool stormDurationLogged;
+    bool stormOverLogged;
+
+    void BeginStormWatch(FGameplayTag area)
+    {
+        stormArea = area;
+        stormStarted = World.RealTime(context!);
+        stormWatchUntil = stormStarted + SoulStormSeconds + 60;
+        nextStormScan = stormStarted + 2;
+        stormDurationLogged = false;
+        stormOverLogged = false;
+    }
+
+    void TrackStorm()
+    {
+        var now = World.RealTime(context!);
+        if (now < nextStormScan) return;
+        nextStormScan = now + 2;
+        if (!stormDurationLogged)
+        {
+            stormDurationLogged = true;
+            Diag($"soul storm game duration={StormDuration(stormArea)} requested={SoulStormSeconds}");
+        }
+        // HasSoulStormOngoing read false 6 s into a storm that went on (0.4.2 in game); the game's own record is used instead.
+        if (!stormOverLogged && IsTag(stormArea) && StormDuration(stormArea) < 0)
+        {
+            stormOverLogged = true;
+            // The reward chest should appear about now: the chests near the hero are named so their drops can be told apart.
+            string near = "";
+            var player = World.Player(context!);
+            if (player != null)
+                foreach (var chest in World.FindAll(context!, Unreal.ClassOf<ALootActor>()))
+                    if (chest.GetDistanceTo(player) <= 4000) near += $"{ChestText(chest)}={chest.GetDistanceTo(player) / 100:0}m ";
+            Diag($"soul storm over after {now - stormStarted:0} s chests near: {near}");
+        }
+    }
+
+    // Teleports the actor a distance from the centre, first at the given angle and then around it, nearer and then farther,
+    // on the navmesh floor plus the lift: in 0.4.2 the game refused the same blocked spot three times and took one from
+    // another side.
+    bool TeleportAround(AActor mover, FVector center, double toward, double distance, double lift, out FVector spot, out int tries)
+    {
+        var extent = new FVector { X = 400, Y = 400, Z = 2000 };
+        spot = center;
+        tries = 0;
+        for (int ring = 0; ring < 2; ring++)
+            for (int step = 0; step < 8; step++)
+            {
+                // 0, -45, +45, -90, +90, -135, +135, 180 degrees from the given side.
+                double angle = toward + (step % 2 == 0 ? 1 : -1) * ((step + 1) / 2) * 45;
+                double stop = ring == 0 ? distance : distance * 1.5;
+                spot = new FVector { X = center.X + UKismetMathLibrary.DegCos(angle) * stop, Y = center.Y + UKismetMathLibrary.DegSin(angle) * stop, Z = center.Z };
+                if (UNavigationSystemV1.K2_ProjectPointToNavigation(context!, spot, out var floor, null!, null!, extent)) { spot = floor; spot.Z += lift; }
+                tries++;
+                if (mover.K2_TeleportTo(spot, mover.K2_GetActorRotation())) return true;
+            }
+        return false;
+    }
+
+    // The storm's generators (Storminators), known by their USWStorminatorBrainComponent, among every actor (they are not
+    // pawns).
+    List<AActor> StormGenerators()
+    {
+        var result = new List<AActor>();
+        foreach (var actor in World.FindAll(context!, Unreal.ClassOf<AActor>()))
+            if (actor.GetComponentByClass(Unreal.ClassOf<USWStorminatorBrainComponent>()) != null) result.Add(actor);
+        return result;
+    }
+
+    /// <summary>
+    /// Takes the hero to the nearest storm generator not already beside them (0.4.1 in game: the game places them far away).
+    /// The game keeps one at a time and makes the next once it is defeated (0.4.2 in game: Medium, Easy, then Hard). The hero
+    /// lands a few metres short of it, on the navmesh floor.
+    /// </summary>
+    public string GoToGenerator()
+    {
+        if (!CanWrite(out var reason)) return reason;
+        var player = World.Player(context!)!;
+        AActor? target = null;
+        float best = 0;
+        int count = 0;
+        string seen = "";
+        foreach (var actor in StormGenerators())
+        {
+            if (!UKismetSystemLibrary.IsValid(actor)) continue;
+            count++;
+            float distance = actor.GetDistanceTo(player);
+            if (count <= 6) seen += $"{UKismetSystemLibrary.GetDisplayName(actor)}={distance / 100:0}m ";
+            if (distance <= GeneratorNear) continue;
+            if (target == null || distance < best) { target = actor; best = distance; }
+        }
+        Diag($"storm generators={count} {seen}");
+        if (count == 0) return "Nenhum gerador ativo agora. O jogo cria um por vez: o próximo aparece alguns segundos depois que o atual é derrotado.";
+        if (target == null) return "O herói já está junto do gerador ativo. Derrote-o; o próximo aparece depois.";
+        var hero = player.K2_GetActorLocation();
+        var at = target.K2_GetActorLocation();
+        // Stop short of the generator, first on the side the hero comes from.
+        bool moved = TeleportAround(player, at, UKismetMathLibrary.DegAtan2(hero.Y - at.Y, hero.X - at.X), GeneratorStop, SpawnLift, out var spot, out var tries);
+        Diag($"storm generator teleport to {UKismetSystemLibrary.GetDisplayName(target)} dist={best / 100:0} m tries={tries} moved={moved} at {spot.X:0},{spot.Y:0},{spot.Z:0}");
+        return moved ? $"Herói levado ao gerador ({Short(best / 100)} m)."
+            : $"O jogo recusou o teleporte nos {tries} pontos em volta do gerador.";
+    }
+
+    const double GeneratorStop = 700;
+    const float GeneratorNear = 2000;
+
+    // ---------------------------------------------------------------- Storm chests (0.4.3)
+
+    List<AActor> chestsSeen;
+    double nextChestScan;
+    double stormSeenUntil;
+
+    // The Soul Storm's chests (SW.LootActor.StorminatorChest.Easy after each generator, .Final.<Low|…> at the end) ignore the
+    // hero's loot options, and they aren't LootActors to FindAll (0.4.3 found none, not even beside the reward). They are
+    // found by their type among all actors, during a storm and for 3 minutes after it, and each new one gets the hero's loot
+    // values on its own ability system, in case its loot table reads the chest's attributes (experimental).
+    void BoostStormChests()
+    {
+        if (!combatActive || context == null || combatAsc == null || !(On("loot") || On("drops") || On("duplicate"))) return;
+        var now = World.RealTime(context);
+        if (now < nextChestScan) return;
+        nextChestScan = now + 2;
+        if (StormActive()) stormSeenUntil = now + 180;
+        if (now > stormSeenUntil) return;
+        foreach (var actor in World.FindAll(context, Unreal.ClassOf<AActor>()))
+        {
+            var type = USWTypeComponent.GetTypeTagFromActor(actor, true).TagName.ToString();
+            if (!type.Contains("StorminatorChest") || chestsSeen.Contains(actor)) continue;
+            chestsSeen.Add(actor);
+            var chest = actor as ALootActor;
+            if (chest != null && chest.bLootUnlocked) { Diag($"storm chest {UKismetSystemLibrary.GetDisplayName(actor)}/{type} already open"); continue; }
+            var asc = chest != null ? chest.ASC : UAbilitySystemBlueprintLibrary.GetAbilitySystemComponent(actor);
+            string sets = "";
+            bool hasLoot = false;
+            if (asc != null)
+                foreach (var set in asc.SpawnedAttributes)
+                {
+                    sets += UKismetSystemLibrary.GetClassDisplayName(UGameplayStatics.GetObjectClass(set)) + " ";
+                    if (set is UATR_Loot) hasLoot = true;
+                }
+            string applied = "";
+            if (asc != null && hasLoot)
+                foreach (var name in new List<string> { "LootingMultiplier", "MaximumLootingPayouts", "DropChanceIncrease", "DropDuplicationChance" })
+                {
+                    var attribute = USWCoreGASUtil.GetAttributeChecked(Unreal.ClassOf<UATR_Loot>(), name);
+                    float hero = UAbilitySystemBlueprintLibrary.GetFloatAttributeBaseFromAbilitySystemComponent(combatAsc, attribute, out var heroFound);
+                    if (!heroFound) continue;
+                    USWCoreGASUtil.SetNumericAttributeBase(asc, attribute, hero);
+                    float read = UAbilitySystemBlueprintLibrary.GetFloatAttributeBaseFromAbilitySystemComponent(asc, attribute, out var readFound);
+                    applied += $"{name}={(readFound ? read : -1)} ";
+                }
+            Diag($"storm chest {UKismetSystemLibrary.GetDisplayName(actor)}/{type} class={GameUI.ClassPath(actor)} lootactor={(chest != null)} asc={(asc != null)} sets={sets}loot={(hasLoot ? "sim" : "não")} applied={applied}");
+        }
+        for (int i = chestsSeen.Count - 1; i >= 0; i--)
+            if (!UKismetSystemLibrary.IsValid(chestsSeen[i])) chestsSeen.RemoveAt(i);
+    }
+
+    // A Soul Storm is going on in the area (the world actor replicates its data while it lasts).
+    bool StormActive()
+    {
+        foreach (var actor in World.FindAll(context!, Unreal.ClassOf<ASWWorldActor>()))
+            foreach (var data in (actor as ASWWorldActor)!.GetReplicatedSoulStormData())
+                return true;
+        return false;
     }
 
     // Hostile mobs around the hero: the game's own hostility check, so pets, summons and villagers are left alone.
@@ -1799,12 +2599,14 @@ public class GameAdapter : UObject, IMenuSpawnResponse
         }
         if (combatActive) Refill();
         RaiseLootRarity();
+        BoostStormChests();
         CheckCombatDrift();
         ReapplyRemembered();
         // A new level starts at the normal speed.
         if (gameSpeed != 1 && (context == null || World.LevelName(context) != slowLevel)) gameSpeed = 1;
         if (pendingMobs > 0 && context != null) TrackRequestedMobs();
         if (context != null && World.RealTime(context) < watchUntil) WatchSpawnedMobs();
+        if (context != null && World.RealTime(context) < stormWatchUntil) TrackStorm();
         if (spawnPlayer != null && (context == null || World.Player(context) != spawnPlayer
             || World.LevelName(context) != spawnLevel || !CanWrite(out var spawnReason)))
         {
@@ -1931,7 +2733,8 @@ public class GameAdapter : UObject, IMenuSpawnResponse
 
     void RaiseLootRarity()
     {
-        if (!combatActive || !On("rarity") || context == null)
+        // The ground scan also counts drops for the other loot options; raising the rarity needs Raridade máxima.
+        if (!combatActive || !(On("rarity") || On("loot") || On("drops") || On("duplicate")) || context == null)
         {
             lootWatching = false;
             return;
@@ -1952,6 +2755,7 @@ public class GameAdapter : UObject, IMenuSpawnResponse
             return;
         }
         RaiseGroundLoot(player);
+        if (!On("rarity")) return;
         var raise = new List<ulong>();
         foreach (var item in inventory.GetAllItems())
         {
@@ -1986,24 +2790,78 @@ public class GameAdapter : UObject, IMenuSpawnResponse
     {
         var actors = World.FindAll(context!, Unreal.ClassOf<ASWItemActor>());
         if (!loggedGroundScan) { loggedGroundScan = true; Diag($"ground scan items={actors.Count}"); }
+        int known = groundKnown.Count, fresh = 0, gear = 0, fromChest = 0;
+        string chestName = "";
+        // Storm chest items to copy into the inventory (type and rarity), once the scan is done.
+        var copyTags = new List<string>();
+        var copyRarities = new List<string>();
         foreach (var actor in actors)
         {
             if (groundKnown.Contains(actor)) continue;
             groundKnown.Add(actor);
+            fresh++;
             var component = (actor as ASWItemActor)?.GASItemComponent;
             if (component == null) continue;
             var data = component.ItemData;
+            // The item names its source: the Soul Storm's reward chest is SW.LootActor.StorminatorChest.<Easy|...>.
+            var source = data.DropSource.TagName.ToString();
+            bool chestDrop = known > 0 && source.Contains("StorminatorChest");
+            if (chestDrop)
+            {
+                fromChest++;
+                chestName = source;
+            }
             var rarity = data.RarityTag.TagName.ToString();
             var slot = UInventoryHelperLibrary.GetItemSlotTag(player, data.TypeTag).TagName.ToString();
-            if (!slot.Contains("Equipment") || (rarity != "SW.Rarity.Common" && rarity != "SW.Rarity.Rare")) continue;
+            if (slot.Contains("Equipment")) gear++;
+            // Only equipment is copied: the chests' food (apple, melon) isn't in the item catalog (0.4.3 test).
+            if (chestDrop && slot.Contains("Equipment"))
+            {
+                copyTags.Add(data.TypeTag.TagName.ToString());
+                copyRarities.Add(rarity);
+            }
+            if (!On("rarity") || !slot.Contains("Equipment") || (rarity != "SW.Rarity.Common" && rarity != "SW.Rarity.Rare")) continue;
             data.RarityTag = new FGameplayTag { TagName = TopRegularRarity };
             component.ItemData = data;
             raisedGround++;
             if (raisedGround <= 5) Diag($"ground loot {data.TypeTag.TagName} {rarity}->{component.ItemData.RarityTag.TagName} actor={UKismetSystemLibrary.GetDisplayName(actor)}");
         }
+        // How many items fall at once (equipment among them, and how many from a chest), to compare the loot options on and
+        // off ("caem poucos itens", 0.4.2); the first look counts what was already lying around.
+        CopyChestLoot(copyTags, copyRarities);
+        if (fresh > 0 && known > 0)
+            Diag($"ground drops +{fresh} equip={gear}" + (fromChest > 0 ? $" chest={fromChest} {chestName}" : "") + $" options={LootOptionsText()}");
         // Forget the drops that were picked up or despawned.
         for (int i = groundKnown.Count - 1; i >= 0; i--)
             if (!UKismetSystemLibrary.IsValid(groundKnown[i])) groundKnown.RemoveAt(i);
+    }
+
+    // The storm chests have no loot attributes of their own (0.4.3: no attribute set on their ability system), so Saque ×N
+    // can't reach them: each item a storm chest drops gets N−1 more of the same type and rarity straight in the inventory,
+    // through the menu's own item creation (catalog, capacity and rarity checks). Their effects are rolled anew.
+    int chestCopies;
+
+    void CopyChestLoot(List<string> tags, List<string> rarities)
+    {
+        if (tags.Count == 0 || !On("loot")) return;
+        int copies = (int)(combatOptions[Rules.CombatKeys().IndexOf("loot")] + 0.5f) - 1;
+        if (copies < 1) return;
+        for (int i = 0; i < tags.Count; i++)
+        {
+            var result = SpawnItem(tags[i], copies, rarities[i]);
+            Diag($"chest copies {tags[i]} {rarities[i]} x{copies} -> {result}");
+            if (result.StartsWith("Inventário confirmou")) chestCopies += copies;
+        }
+        combatStatus = $"Saque do baú da tempestade: {chestCopies} cópia(s) criadas no inventário.";
+    }
+
+    static string ChestText(AActor chest) => $"{UKismetSystemLibrary.GetDisplayName(chest)}/{USWTypeComponent.GetTypeTagFromActor(chest, true).TagName}";
+
+    // The loot options in force, for the drop counts: loot factor, then d(rops) and x (duplicate) when on.
+    string LootOptionsText()
+    {
+        var keys = Rules.CombatKeys();
+        return $"x{Short(combatOptions[keys.IndexOf("loot")])}" + (On("drops") ? "+d" : "") + (On("duplicate") ? "+x" : "");
     }
 
     public void Restore()

@@ -1,6 +1,6 @@
 <Project Sdk="NeoRuneExtended.Sdk/1.0.0">
   <PropertyGroup>
-    <Version>0.4.0</Version>
+    <Version>0.4.4</Version>
     <NeoRuneModTitle>Menu Dungeons — Solo</NeoRuneModTitle>
     <NeoRuneModDescription>Recursos, itens, mobs, encantamentos e combate para partidas solo/offline.</NeoRuneModDescription>
     <NeoRuneModAuthor>Mod pessoal criado com Codex</NeoRuneModAuthor>

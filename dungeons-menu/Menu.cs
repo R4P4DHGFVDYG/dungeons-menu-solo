@@ -32,6 +32,10 @@ public class Menu : ModMenu
     public const int PickAmount = 10;
     public const int PickPage = 11;
     public const int PickZoom = 12;
+    public const int PickMode = 13;
+    public const int PickEffect = 14;
+    public const int PickEffectRemove = 15;
+    public const int PickTalismanLevel = 16;
     // Canvas units: the canvas is 1080 high at 100% zoom.
     const float NavHeight = 92;
     const float FooterHeight = 78;
@@ -45,7 +49,7 @@ public class Menu : ModMenu
     const int MinZoom = 80;
     const int MaxZoom = 130;
     const int ZoomStep = 10;
-    const string Version = "0.4.0";
+    const string Version = "0.4.4";
     const int TabCount = 7;
     const int TabResources = 0;
     const int TabHero = 1;
@@ -123,6 +127,8 @@ public class Menu : ModMenu
     string selectedItem;
     int itemRarity;
     int itemQuantity;
+    // The level a new talisman is created at.
+    int talismanLevel;
 
     // Mobs tab.
     List<string> mobTags;
@@ -138,6 +144,13 @@ public class Menu : ModMenu
     string selectedEnchant;
     int enchantPage;
     int enchantLevel;
+    // The same tab's effect editor (the middle column switches between enchantments and effects).
+    bool effectsMode;
+    List<string> effectTags;
+    string selectedEffect;
+    int effectPage;
+    int effectLevel;
+    USpinBox? effectLevelSpin;
 
     public void Setup(GameAdapter game, string key)
     {
@@ -149,6 +162,10 @@ public class Menu : ModMenu
         mobTags = new List<string>();
         equipIds = new List<string>();
         enchantTags = new List<string>();
+        effectTags = new List<string>();
+        selectedEffect = "";
+        effectLevel = 3;
+        talismanLevel = 1;
         itemQuery = "";
         mobQuery = "";
         category = "all";
@@ -620,6 +637,7 @@ public class Menu : ModMenu
             else if (tab == TabEnchants) enchantLevel = number;
         }
         if (powerSpin != null && tab == TabEnchants) powerInput = (int)powerSpin.GetValue();
+        if (effectLevelSpin != null) effectLevel = (int)effectLevelSpin.GetValue();
         if (levelSpin != null) levelInput = (int)levelSpin.GetValue();
         if (enchantsmithSpin != null) enchantsmithInput = (int)enchantsmithSpin.GetValue();
         if (blacksmithSpin != null) blacksmithInput = (int)blacksmithSpin.GetValue();
@@ -643,7 +661,7 @@ public class Menu : ModMenu
         builtTab = tab;
         BuildNav();
         body.ClearChildren();
-        query = null; value = null; powerSpin = null;
+        query = null; value = null; powerSpin = null; effectLevelSpin = null;
         levelSpin = null; enchantsmithSpin = null; blacksmithSpin = null; merchantSpin = null; gameSpeedSpin = null; radiusSpin = null;
         spins.Clear(); combatSpins.Clear(); combatSpinKeys.Clear();
         if (tab == TabResources) ResourcesPage();
@@ -708,7 +726,8 @@ public class Menu : ModMenu
         int combatAt = field.StartsWith("c:") ? combatSpinKeys.IndexOf(field.Substring(2)) : -1;
         var target = field == "power" ? powerSpin : field == "level" ? levelSpin : field == "v:enchantsmith" ? enchantsmithSpin
             : field == "v:blacksmith" ? blacksmithSpin : field == "v:merchant" ? merchantSpin
-            : field == "gamespeed" ? gameSpeedSpin : field == "radius" ? radiusSpin : combatAt >= 0 ? combatSpins[combatAt] : value;
+            : field == "gamespeed" ? gameSpeedSpin : field == "radius" ? radiusSpin : field == "elevel" ? effectLevelSpin
+            : combatAt >= 0 ? combatSpins[combatAt] : value;
         if (target == null) return;
         float step = combatAt >= 0 ? CombatStep(combatSpinKeys[combatAt]) : field == "gamespeed" ? 0.25f : field == "radius" ? 5 : field == "value" && tab == TabResources ? 100 : 1;
         float before = target.GetValue();
@@ -723,6 +742,12 @@ public class Menu : ModMenu
         if (combatAt >= 0) ApplyCombat(combatSpinKeys[combatAt]);
         else if (field.StartsWith("v:")) ApplyVendor(field.Substring(2), target);
         else if (field == "gamespeed") ApplyGameSpeed();
+        // The effect's level redraws the panel so its description follows.
+        else if (field == "elevel")
+        {
+            effectLevel = (int)next;
+            Page();
+        }
     }
 
     USpinBox? Number(float min, float max, float initial, int decimals)
@@ -1041,7 +1066,7 @@ public class Menu : ModMenu
         var side = Ui.Column(tree);
         AddH(main, Sized(side, sideWidth, contentHeight), 0, false, true);
         Section(side, "CATEGORIAS", 0);
-        foreach (var key in new List<string> { "all", "melee", "ranged", "armor", "artifact", "book", "other" })
+        foreach (var key in new List<string> { "all", "melee", "ranged", "armor", "artifact", "talisman", "book", "other" })
             CategoryButton(side, key, sideWidth);
 
         var center = Ui.Column(tree);
@@ -1058,6 +1083,11 @@ public class Menu : ModMenu
             AddV(panel, Wrapped("Escolha um item na lista para ver a foto, escolher a raridade e criar.", 21, Muted()), 12);
             return;
         }
+        if (GameAdapter.IsTalisman(selectedItem))
+        {
+            TalismanPanel(panel, heroIcon, heroTitle);
+            return;
+        }
         HeroTall(panel, heroIcon, heroTitle, ItemVisuals.RarityName(itemRarity), ItemVisuals.RarityColor(itemRarity), 156);
         Section(panel, "RARIDADE", 22);
         RarityGrid(panel, itemRarity, DetailInner);
@@ -1068,6 +1098,47 @@ public class Menu : ModMenu
         value = Stepper(row, "value", 1, 20, itemQuantity, 0, DetailInner - 2 * (StepHeight + 8), 0);
         var create = Btn("CRIAR  •  " + ItemVisuals.RarityName(itemRarity).ToUpper(), ItemVisuals.LookPrimary, 26);
         if (create != null) { create.OnClicked += Spawn; AddV(panel, Sized(create, DetailInner, 76), 22); }
+    }
+
+    // A talisman instead of rarity and quantity: the hero's own one changes level at a click (talismans level up from
+    // 1 to 3 as they gain XP); one the hero lacks is created at the chosen level.
+    void TalismanPanel(UVerticalBox? panel, UTexture2D? icon, string title)
+    {
+        if (adapter == null) return;
+        int owned = adapter.TalismanLevel(selectedItem, out var levels);
+        if (levels <= 0) levels = 3;
+        HeroTall(panel, icon, title, "Talismã", Gold(), 156);
+        Section(panel, owned > 0 ? $"NÍVEL  •  O HERÓI TEM NO NÍVEL {owned}" : "NÍVEL AO CRIAR", 22);
+        LevelRow(panel, owned > 0 ? owned : talismanLevel, levels, DetailInner);
+        if (owned > 0)
+        {
+            AddV(panel, Wrapped("Clique num nível para mudar o talismã do herói na hora.", 18, Muted()), 8);
+            var effects = adapter.TalismanEffects(selectedItem);
+            if (effects.Count > 0) Section(panel, "EFEITO NESTE NÍVEL", 20);
+            foreach (var text in effects)
+                if (text != "") AddV(panel, Wrapped(text, 20, Light()), 8);
+            return;
+        }
+        var create = Btn($"CRIAR  •  NÍVEL {talismanLevel}", ItemVisuals.LookPrimary, 26);
+        if (create != null) { create.OnClicked += SpawnTalisman; AddV(panel, Sized(create, DetailInner, 76), 22); }
+        AddV(panel, Wrapped("O herói fica com um de cada talismã; depois de criado, o nível muda aqui mesmo.", 18, Muted()), 12);
+    }
+
+    // A talisman's levels side by side; the chosen one framed in gold.
+    void LevelRow(UVerticalBox? column, int selected, int levels, float width)
+    {
+        var row = Ui.Row(tree);
+        if (column == null || row == null) return;
+        AddV(column, row, 10);
+        float cell = (width - 8 * (levels - 1)) / levels;
+        for (int i = 1; i <= levels; i++)
+        {
+            var button = Tile(PickTalismanLevel, $"{i}");
+            if (button == null) continue;
+            StyleButton(button, ItemVisuals.LookList, false, 10, 8);
+            Center(button, Txt($"NÍVEL {i}", ItemVisuals.PixelUi, 19, i == selected ? Gold() : White()));
+            AddH(row, Selectable(button, cell, 56, i == selected), i == 1 ? 0 : 8, false, false);
+        }
     }
 
     // A category in the side list: the game's category icon and its name; the open one is framed in gold.
@@ -1102,11 +1173,11 @@ public class Menu : ModMenu
 
     static string CategoryOf(string slot) =>
         slot.Contains("Melee") ? "melee" : slot.Contains("Ranged") ? "ranged" : slot.Contains("Armor") ? "armor"
-        : slot.Contains("Artifact") ? "artifact" : slot.Contains("EnchantmentBook") ? "book" : "other";
+        : slot.Contains("Artifact") ? "artifact" : slot.Contains("Talisman") ? "talisman" : slot.Contains("EnchantmentBook") ? "book" : "other";
 
     static string CategoryName(string key) =>
         key == "melee" ? "CORPO A CORPO" : key == "ranged" ? "À DISTÂNCIA" : key == "armor" ? "ARMADURAS"
-        : key == "artifact" ? "ARTEFATOS" : key == "book" ? "LIVROS" : key == "other" ? "OUTROS" : "TODOS";
+        : key == "artifact" ? "ARTEFATOS" : key == "talisman" ? "TALISMÃS" : key == "book" ? "LIVROS" : key == "other" ? "OUTROS" : "TODOS";
 
     // ---------------------------------------------------------------- Mobs
 
@@ -1199,16 +1270,22 @@ public class Menu : ModMenu
     void EnchantsPage()
     {
         if (adapter == null) return;
-        if (equipIds.Count == 0) equipIds = adapter.EquipmentCatalog();
+        if (equipIds.Count == 0) equipIds = adapter.EquipmentCatalog(effectsMode);
         if ((selectedEquip == "" || !equipIds.Contains(selectedEquip)) && equipIds.Count > 0) { selectedEquip = equipIds[0]; selectedEnchant = ""; enchantTags.Clear(); }
         if (enchantTags.Count == 0 && selectedEquip != "") enchantTags = freeMode ? adapter.AllEnchantments() : adapter.EnchantmentCatalog(selectedEquip, "");
+        if (effectTags.Count == 0) effectTags = adapter.EffectCatalog();
+        // The middle column lists enchantments or effects; the same paging serves both.
+        var listed = effectsMode ? effectTags : enchantTags;
+        int listGroup = effectsMode ? PickEffect : PickEnchantment;
         float equipWidth = Fit(contentWidth * 0.23f, 330, 430);
         float listWidth = contentWidth - equipWidth - detailWidth - Gap * 2;
         int columns = Columns(listWidth, 320);
-        perPage = columns * Rows(contentHeight - 44 - 106 - 70);
-        enchantPage = Clamp(enchantPage, Pages(enchantTags.Count));
-        int first = enchantPage * perPage;
-        int last = first + perPage > enchantTags.Count ? enchantTags.Count : first + perPage;
+        perPage = columns * Rows(contentHeight - 68 - (effectsMode ? 0 : 106) - 70);
+        int listPage = Clamp(effectsMode ? effectPage : enchantPage, Pages(listed.Count));
+        if (effectsMode) effectPage = listPage;
+        else enchantPage = listPage;
+        int first = listPage * perPage;
+        int last = first + perPage > listed.Count ? listed.Count : first + perPage;
         // Icons and names first: loading can run the garbage collector, so no widget is made until they are in memory.
         var equipIcons = new List<UTexture2D>();
         var equipTitles = new List<string>();
@@ -1221,11 +1298,19 @@ public class Menu : ModMenu
         var titles = new List<string>();
         for (int i = first; i < last; i++)
         {
-            icons.Add(IconFor(PickEnchantment, enchantTags[i])!);
-            titles.Add(TitleFor(PickEnchantment, enchantTags[i]));
+            icons.Add(IconFor(listGroup, listed[i])!);
+            titles.Add(TitleFor(listGroup, listed[i]));
         }
         UTexture2D? equipIcon = selectedEquip != "" ? IconFor(PickEquipment, selectedEquip) : null;
         UTexture2D? enchantIcon = selectedEnchant != "" ? IconFor(PickEnchantment, selectedEnchant) : null;
+        if (effectsMode && visuals != null && selectedEquip != "")
+        {
+            // The effect panel's icons too (the item's effects and the chosen one), before any widget.
+            var worn = new List<string>();
+            adapter.ItemEffects(selectedEquip, worn, new List<string>());
+            foreach (var tag in worn) IconFor(PickEffect, tag);
+            if (selectedEffect != "") IconFor(PickEffect, selectedEffect);
+        }
 
         var main = Ui.Row(tree);
         AddV(body, main, 0);
@@ -1241,16 +1326,25 @@ public class Menu : ModMenu
 
         var enchantColumn = Ui.Column(tree);
         AddH(main, Sized(enchantColumn, listWidth, contentHeight), Gap, false, true);
-        Section(enchantColumn, $"ENCANTAMENTOS  •  {enchantTags.Count}", 0);
-        ToggleRow(enchantColumn, "free", "Modo livre", freeMode ? "Qualquer encantamento em qualquer item, até o nível 20." : "Só os que o jogo aceita neste item.", freeMode, 0, 12);
-        Grid(enchantColumn, PickEnchantment, enchantTags, first, last, icons, titles, selectedEnchant, listWidth, columns);
-        Pager(enchantColumn, enchantPage, enchantTags.Count, "encantamentos");
+        var modes = Ui.Row(tree);
+        AddV(enchantColumn, modes, 0);
+        ModeTab(modes, "enchant", $"ENCANTAMENTOS  •  {enchantTags.Count}", !effectsMode, 0);
+        ModeTab(modes, "effects", $"EFEITOS  •  {effectTags.Count}", effectsMode, 8);
+        if (!effectsMode)
+            ToggleRow(enchantColumn, "free", "Modo livre", freeMode ? "Qualquer encantamento em qualquer item, até o nível 20." : "Só os que o jogo aceita neste item.", freeMode, 0, 12);
+        Grid(enchantColumn, listGroup, listed, first, last, icons, titles, effectsMode ? selectedEffect : selectedEnchant, listWidth, columns);
+        Pager(enchantColumn, listPage, listed.Count, effectsMode ? "efeitos" : "encantamentos");
 
         var panel = DetailPanel(main, "ITEM EQUIPADO", detailWidth, Gap);
         if (panel == null || selectedEquip == "") return;
         int equipRarity = ItemVisuals.RarityIndex(adapter.EquippedRarity(selectedEquip));
         int currentPower = adapter.ItemPower(selectedEquip);
         HeroWide(panel, equipIcon, TitleFor(PickEquipment, selectedEquip), ItemVisuals.RarityName(equipRarity), ItemVisuals.RarityColor(equipRarity), $"Poder atual: {currentPower}", 124);
+        if (effectsMode)
+        {
+            EffectsPanel(panel);
+            return;
+        }
         Section(panel, "RARIDADE", 20);
         RarityGrid(panel, equipRarity, DetailInner);
         Section(panel, "PODER DO ITEM", 20);
@@ -1290,6 +1384,80 @@ public class Menu : ModMenu
         var apply = Btn("APLICAR ENCANTAMENTO", ItemVisuals.LookPrimary, 26);
         if (apply != null) { apply.OnClicked += Enchant; AddV(panel, Sized(apply, DetailInner, 76), 20); }
         AddV(panel, Wrapped("Pontos de encantamento ficam na aba Recursos; o livro que faltar é criado. Para qualquer slot ou nível, ligue o modo livre.", 18, Muted()), 12);
+    }
+
+    // One side of the middle column's switch, in the game's tab look.
+    void ModeTab(UHorizontalBox? row, string id, string label, bool open, float left)
+    {
+        var button = Tile(PickMode, id);
+        if (button == null) return;
+        StyleButton(button, ItemVisuals.LookTab, open, 14, 4);
+        Center(button, Txt(label, ItemVisuals.Nav, 21, LookColor(ItemVisuals.LookTab, open)));
+        AddH(row, Sized(button, 0, 56), left, false, false);
+    }
+
+    // The worn item's effects (each with REMOVER), then the effect chosen in the middle at a level, with the game's own
+    // description of what it will do.
+    void EffectsPanel(UVerticalBox? panel)
+    {
+        if (adapter == null) return;
+        var tags = new List<string>();
+        var texts = new List<string>();
+        adapter.ItemEffects(selectedEquip, tags, texts);
+        Section(panel, "EFEITOS DO ITEM", 20);
+        if (tags.Count == 0) AddV(panel, Wrapped("Este item não tem efeitos.", 19, Muted()), 10);
+        for (int i = 0; i < tags.Count; i++) EffectRow(panel, tags[i], texts[i]);
+        Divider(panel, 22);
+        if (selectedEffect == "")
+        {
+            AddV(panel, Wrapped("Escolha um efeito na lista do meio para pôr no item.", 21, Muted()), 16);
+            return;
+        }
+        bool has = tags.Contains(selectedEffect);
+        Section(panel, has ? "TROCAR EFEITO" : "NOVO EFEITO", 18);
+        var preview = adapter.EffectPreview(selectedEffect, effectLevel);
+        var chosen = Ui.Row(tree);
+        AddV(panel, chosen, 10);
+        AddH(chosen, IconFrame(IconFor(PickEffect, selectedEffect), 92, true, false), 0, false, false);
+        var chosenTexts = Ui.Column(tree);
+        AddH(chosen, chosenTexts, 16, true, false);
+        AddV(chosenTexts, Txt(EffectTitle(selectedEffect).ToUpper(), ItemVisuals.PixelTitle, 26, White()), 0);
+        if (preview != "") AddV(chosenTexts, Wrapped(preview, 20, Gold()), 8);
+        Section(panel, $"NÍVEL  •  NORMAL ATÉ 3, LIVRE ATÉ {GameAdapter.MaxEffectLevel}", 18);
+        var levelRow = Ui.Row(tree);
+        AddV(panel, levelRow, 10);
+        effectLevelSpin = Stepper(levelRow, "elevel", 1, GameAdapter.MaxEffectLevel, effectLevel, 0, DetailInner - 2 * (StepHeight + 8), 0);
+        if (effectLevelSpin != null) effectLevelSpin.OnValueCommitted += EffectLevelTyped;
+        var write = Btn(has ? "TROCAR NO ITEM" : "ADICIONAR AO ITEM", ItemVisuals.LookPrimary, 26);
+        if (write != null) { write.OnClicked += AddEffect; AddV(panel, Sized(write, DetailInner, 76), 20); }
+        AddV(panel, Wrapped("Grava direto no item e o reequipa. Trocar muda a força do efeito que o item já tem. Alguns efeitos só agem no tipo de item certo (tiro múltiplo num arco, por exemplo); acima do nível 3 é experimental.", 18, Muted()), 12);
+    }
+
+    // An effect on the item: its icon, what it does and a button that takes it off.
+    void EffectRow(UVerticalBox? column, string tag, string text)
+    {
+        var band = Band(column, 10);
+        if (band == null) return;
+        var texts = Ui.Column(tree);
+        AddH(band, IconFrame(IconFor(PickEffect, tag), 56, false, false), 0, false, false);
+        AddH(band, texts, 14, true, false);
+        AddV(texts, Txt(EffectTitle(tag), ItemVisuals.Readable, 22, White()), 0);
+        if (text != "") AddV(texts, Wrapped(text, 18, Muted()), 4);
+        var remove = Tile(PickEffectRemove, tag);
+        if (remove == null) return;
+        StyleButton(remove, ItemVisuals.LookSecondary, false, 8, 4);
+        Center(remove, Txt("REMOVER", ItemVisuals.PixelUi, 16, LookColor(ItemVisuals.LookSecondary, false)));
+        AddH(band, Sized(remove, 118, 48), 12, false, false);
+    }
+
+    // An effect's short name: the menu's Portuguese one; the game's "titles" for effects are internal names
+    // (SoulGather_TalismanEffect, seen on 0.4.1), so one is used only when it reads like a name.
+    string EffectTitle(string tag)
+    {
+        var name = GameAdapter.EffectName(tag);
+        if (name != "") return name;
+        var title = visuals != null ? visuals.Title(tag) : tag;
+        return title != tag && !title.Contains("_") ? title : Pretty(tag.Replace("SW.Effect.", "").Replace("SW.Enchantment.", ""));
     }
 
     // ---------------------------------------------------------------- Combat
@@ -1411,7 +1579,9 @@ public class Menu : ModMenu
         if (start != null) start.OnClicked += StartStorm;
         var end = WorldButton(stormRow, "ENCERRAR", 14);
         if (end != null) end.OnClicked += EndStorm;
-        AddV(left, Wrapped("Experimental: a tempestade é da área onde o herói está; o jogo pode recusar fora das áreas que têm tempestade.", 18, Muted()), 8);
+        var toGenerator = WorldButton(stormRow, "IR AO GERADOR", 14);
+        if (toGenerator != null) toGenerator.OnClicked += GoGenerator;
+        AddV(left, Wrapped("Experimental: dura 15 min (o tempo corre com o menu aberto). O jogo cria um gerador por vez; IR AO GERADOR leva ao que estiver ativo. A tempestade é da área onde o herói está; o jogo pode recusar fora das áreas que têm tempestade.", 18, Muted()), 8);
 
         Section(left, "INIMIGOS POR PERTO", 30);
         radiusSpin = StepRow(left, "radius", "Raio", "Em metros, ao redor do herói. Só inimigos: pets, invocações e aldeões ficam de fora.", 5, 50, radiusInput > 0 ? radiusInput : 20, 0, 12);
@@ -1469,6 +1639,8 @@ public class Menu : ModMenu
     {
         if (visuals == null) return null;
         if (group == PickEquipment) return visuals.Icon(GameAdapter.EquipmentTag(id));
+        // Unique items keep their own enchantment among their effects: it shows its enchantment's icon.
+        if (group == PickEffect) return id.StartsWith("SW.Enchantment.") ? IconFor(PickEnchantment, id) : visuals.EffectIcon(id);
         if (group == PickMob)
         {
             var mob = visuals.Icon(id);
@@ -1484,6 +1656,7 @@ public class Menu : ModMenu
     {
         if (visuals == null) return id;
         if (group == PickEquipment) return visuals.Title(GameAdapter.EquipmentTag(id));
+        if (group == PickEffect) return EffectTitle(id);
         var title = visuals.Title(id);
         if (group != PickEnchantment || title != id) return title;
         var book = "SW.Item.EnchantmentBook." + id.Substring(id.LastIndexOf(".") + 1);
@@ -1515,8 +1688,9 @@ public class Menu : ModMenu
 
     FLinearColor StripColor(int group, string id, bool chosen)
     {
-        if (group == PickEnchantment) return Accent();
+        if (group == PickEnchantment || group == PickEffect) return Accent();
         if (group == PickMob) return Ui.Color(0.85f, 0.32f, 0.3f, 1);
+        if (group == PickItem && GameAdapter.IsTalisman(id)) return Gold();
         if (chosen && group == PickItem) return ItemVisuals.RarityColor(itemRarity);
         return id.ToLower().Contains("unique") ? ItemVisuals.RarityColor(3) : Ui.Color(0.4f, 0.44f, 0.5f, 1);
     }
@@ -1689,7 +1863,35 @@ public class Menu : ModMenu
             int delta = id == "+" ? 1 : -1;
             if (tab == TabItems) itemPage += delta;
             else if (tab == TabMobs) mobPage += delta;
+            else if (tab == TabEnchants && effectsMode) effectPage += delta;
             else if (tab == TabEnchants) enchantPage += delta;
+        }
+        else if (group == PickMode)
+        {
+            // Artifacts take effects but no enchantment: the worn list is made again for the other mode.
+            if (effectsMode != (id == "effects")) equipIds.Clear();
+            effectsMode = id == "effects";
+        }
+        else if (group == PickEffect) selectedEffect = id;
+        else if (group == PickEffectRemove)
+        {
+            var removed = adapter != null && selectedEquip != "" ? adapter.RemoveItemEffect(selectedEquip, id) : "";
+            Page();
+            Report(removed);
+            return;
+        }
+        else if (group == PickTalismanLevel)
+        {
+            int level = UKismetStringLibrary.Conv_StringToInt(id);
+            // The hero's own talisman changes at once; otherwise this is the level to create it at.
+            if (adapter != null && adapter.TalismanLevel(selectedItem, out var levels) > 0)
+            {
+                var result = adapter.SetTalismanLevel(selectedItem, level);
+                Page();
+                Report(result);
+                return;
+            }
+            talismanLevel = level;
         }
         else if (group == PickToggle)
         {
@@ -1712,6 +1914,7 @@ public class Menu : ModMenu
         {
             selectedItem = id;
             itemRarity = id.ToLower().Contains("unique") ? 3 : 0;
+            talismanLevel = 1;
         }
         else if (group == PickCategory)
         {
@@ -1776,6 +1979,30 @@ public class Menu : ModMenu
     }
 
     void RemoveMobs() { if (adapter != null) Report(adapter.RemoveSpawnedMobs()); }
+
+    void SpawnTalisman()
+    {
+        if (adapter == null || selectedItem == "") return;
+        var result = adapter.SpawnTalisman(selectedItem, talismanLevel);
+        Page();
+        Report(result);
+    }
+
+    void AddEffect()
+    {
+        if (adapter == null || selectedEquip == "" || selectedEffect == "") return;
+        Capture();
+        var result = adapter.SetItemEffect(selectedEquip, selectedEffect, effectLevel);
+        Page();
+        Report(result);
+    }
+
+    // A level typed in the effect's box: Enter redraws the description, leaving the box keeps it for the button.
+    void EffectLevelTyped(float number, ETextCommit method)
+    {
+        effectLevel = (int)number;
+        if (method == ETextCommit.OnEnter) Page();
+    }
 
     void ApplyPower()
     {
@@ -1958,6 +2185,7 @@ public class Menu : ModMenu
 
     void StartStorm() { WorldResult(adapter != null ? adapter.StartSoulStorm() : ""); }
     void EndStorm() { WorldResult(adapter != null ? adapter.EndSoulStorm() : ""); }
+    void GoGenerator() { WorldResult(adapter != null ? adapter.GoToGenerator() : ""); }
     void KillNearby() { Capture(); WorldResult(adapter != null ? adapter.KillNearbyMobs(radiusInput) : ""); }
     void FreezeNearby() { Capture(); WorldResult(adapter != null ? adapter.ToggleFreeze(radiusInput) : ""); }
     void SavePlace1() { WorldResult(adapter != null ? adapter.SavePlace(0) : ""); }
